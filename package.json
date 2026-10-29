@@ -1,0 +1,70 @@
+{
+  "name": "dsh-plugin-agent-tree",
+  "version": "0.1.0",
+  "description": "DSH Web mini agent tree: a tiny always-on floating card showing workspace → conversation → subagent as a live tree, with per-row model, scheduled-task countdowns, and external claude/codex CLI processes.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "agent-tree",
+    "subagent",
+    "agent-team",
+    "observability",
+    "monitor",
+    "session",
+    "tree",
+    "claude",
+    "codex"
+  ],
+  "homepage": "https://github.com/yuna78/dsh-agent-tree#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuna78/dsh-agent-tree.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yuna78/dsh-agent-tree/issues"
+  },
+  "author": "Yuna",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "docs/",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "verify": "node verify/smoke.mjs",
+    "prepublishOnly": "node verify/smoke.mjs"
+  }
+}

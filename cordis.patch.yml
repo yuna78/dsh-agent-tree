@@ -1,0 +1,8 @@
+# Agent Tree —— DSH Web 插件
+#
+# 插入一个 host 行（插件宿主半部负责 GET /local/dsh-agent-tree/processes）；
+# 客户端半部由本包 package.json 的 dsh.client 声明（./client.js）。
+- insert:
+    - id: dsh-agent-tree
+      name: 'dsh-plugin-agent-tree'
+      config: {}
