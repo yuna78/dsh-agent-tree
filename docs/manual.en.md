@@ -76,7 +76,7 @@ The `dsh` root row collapses every workspace at once; its right side shows the w
 | `▾ / ▸` | this row has children — expand / collapsed |
 | `●` | status dot, colored by depth (below) |
 | Title | session title (`displayTitle`), elided when long; running rows are bolder |
-| `⏱8m` | countdown to the next scheduled run: `now` / `<1m` / `8m` / `2h` / `3d` |
+| `⏰` + `8m` | countdown to the next scheduled run: `now` / `<1m` / `8m` / `2h` / `3d` |
 | `v4.1-flash` | model chip (right aligned) from `modelSelection`, with `deepseek-` / `anthropic-` prefixes stripped |
 | `1m5s` | elapsed duration (subagent rows only): `45s` / `12m` / `1h5m` |
 

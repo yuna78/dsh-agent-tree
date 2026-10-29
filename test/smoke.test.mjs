@@ -613,3 +613,17 @@ test('pickCodexRoot can hand out distinct sessions to processes sharing one cwd'
   assert.deepEqual([first.id, second.id, third.id], ['a', 'b', 'c'], '同 cwd 的三个进程各认领一条会话，不会三行同名');
   assert.equal(pickCodexRoot(metas, '/work/devline', { exclude: claimed }), undefined, '认领完了就不硬塞');
 });
+
+test('scheduleMark keeps an alarm clock on loop sessions and shows the countdown', () => {
+  const { scheduleMark } = clientModule.__test;
+  const now = Date.UTC(2026, 9, 29, 5, 0, 0);
+  const soon = scheduleMark({ count: 2, nextAt: now + 8 * 60000 }, now);
+  assert.equal(soon.mark, '⏰');
+  assert.equal(soon.label, '8m');
+  assert.match(soon.title, /2 个定时任务/);
+  assert.equal(scheduleMark({ count: 1, nextAt: now - 5000 }, now).label, 'now', '刚触发过也保留闹钟，只是显示 now');
+  assert.equal(scheduleMark({ count: 1, nextAt: now - 5000 }, now).mark, '⏰');
+  assert.equal(scheduleMark({ count: 1, nextAt: Number.POSITIVE_INFINITY }, now).label, '', '没有下次时间就不显示倒计时数字');
+  assert.equal(scheduleMark(undefined, now), null);
+  assert.equal(scheduleMark(null, now), null);
+});

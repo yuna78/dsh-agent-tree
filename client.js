@@ -182,6 +182,22 @@ window.__ModuleLoader__.load({
       return map;
     }
 
+    /**
+     * 定时任务的行内标记：`mark` 放在标题前面当小闹钟，`label` 放在右侧当倒计时。
+     * 倒计时已经到期（`now`）时 label 仍然给 `now`，mark 不消失——一眼就知道这行是循环任务。
+     */
+    function scheduleMark(scheduled, now) {
+      if (scheduled === undefined || scheduled === null) return null;
+      const label = countdownLabel(scheduled.nextAt, now);
+      return {
+        mark: '\u23f0',
+        label,
+        title: `${scheduled.count} 个定时任务${
+          Number.isFinite(scheduled.nextAt) ? `，下次 ${new Date(scheduled.nextAt).toLocaleString()}` : ''
+        }`,
+      };
+    }
+
     /** 距离下次触发还有多久，比如 `8m` / `2h` / `3d`。 */
     function countdownLabel(nextAt, now) {
       if (!Number.isFinite(nextAt)) return '';
@@ -483,6 +499,24 @@ window.__ModuleLoader__.load({
     }
 
     /** 「等你拍板」的小徽标：琥珀色 `待答` / `待批` / `待审`。 */
+    /** 定时 / 循环任务的小闹钟。 */
+    function AlarmMark({ title }) {
+      return h(
+        'span',
+        {
+          title,
+          style: {
+            flex: 'none',
+            fontSize: 9,
+            lineHeight: 1,
+            opacity: 0.75,
+            color: 'var(--dsw-alias-label-tertiary)',
+          },
+        },
+        '\u23f0',
+      );
+    }
+
     function WaitBadge({ kind }) {
       const info = WAIT[kind];
       if (!info) return null;
@@ -560,19 +594,16 @@ window.__ModuleLoader__.load({
           const expanded = !collapsedNodes[key];
           const own = modelLabel(node.row.projectionValues);
           const model = own || inheritedModel || '';
-          const scheduled = node.schedule;
-          const clock = scheduled
+          const schedule = scheduleMark(node.schedule, now);
+          const alarm = schedule ? h(AlarmMark, { title: schedule.title }) : null;
+          const clock = schedule
             ? h(
                 'span',
                 {
-                  title: `${scheduled.count} 个定时任务${
-                    Number.isFinite(scheduled.nextAt)
-                      ? `，下次 ${new Date(scheduled.nextAt).toLocaleString()}`
-                      : ''
-                  }`,
+                  title: schedule.title,
                   style: { flex: 'none', fontSize: 8.5, color: 'var(--dsw-alias-label-tertiary)' },
                 },
-                `⏱${countdownLabel(scheduled.nextAt, now)}`,
+                schedule.label,
               )
             : null;
 
@@ -619,6 +650,7 @@ window.__ModuleLoader__.load({
                   : node.active
                     ? h(Dot, { color: DOT.conversation, active: true })
                     : null,
+                alarm,
                 clampSpan(shortTitle(node.row), {
                   fontSize: 10.5,
                   fontWeight: node.waiting || node.active ? 600 : 500,
@@ -652,6 +684,7 @@ window.__ModuleLoader__.load({
               },
               glyph(connector),
               h(Dot, { color: node.waiting ? WAIT[node.waiting].color : color, active: node.active || Boolean(node.waiting) }),
+              alarm,
               clampSpan(shortTitle(node.row), {
                 fontSize: 10.5,
                 color: node.waiting
@@ -1253,6 +1286,7 @@ window.__ModuleLoader__.load({
       groupProcessChildren,
         modelLabel,
         toScheduleMap,
+        scheduleMark,
         countdownLabel,
         formatElapsed,
       },

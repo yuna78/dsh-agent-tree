@@ -8,11 +8,11 @@
 ├──────────────────────────────────────────────────┤
 │ ▾ ● dsh                          2 个 workspace  │ ← 顶层 agent：这个 DSH 实例
 │ ├─ ▾ proj-alpha                              2  │ ← workspace
-│ │  ├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro  │ ← 对话（绿点）
+│ │  ├─ ▾ ● ⏰ Refactor billing flow  8m  v4.1-pro  │ ← 对话（绿点，挂了定时）
 │ │  │  ├─ ● Explore repo structure      1m5s     │ ← subagent（蓝点）
 │ │  │  │  └─ ● Run unit tests              9s     │ ← 孙代理（紫点）
 │ │  │  └─ ● Write migration plan          31s     │
-│ │  └─   Fix flaky login test      ⏱2h  v4.1-flash │ ← 有定时、当前空闲
+│ │  └─   ⏰ Fix flaky login test      2h  v4.1-flash │ ← 有定时、当前空闲
 │ ├─ ▾ my-repo                                 1  │
 │ │  └─ ● Triage CI failures        v4.1-pro       │
 │ ▾ ● claude  proj-alpha                 12m 3%    │ ← 顶层 agent：本机 claude（和 dsh 同级）
@@ -78,7 +78,7 @@ dsh（这个实例）                  claude / codex（本机其它 agent）
 | `▾ / ▸` | 这一行有子代理，可展开 / 已收起 |
 | `●` | 状态点：颜色见下表 |
 | 标题 | 会话标题（`displayTitle`），过长省略；运行的会话字更粗更深 |
-| `⏱8m` | 定时任务的倒计时：`now` / `<1m` / `8m` / `2h` / `3d` |
+| `⏰` + `8m` | 标题前的小闹钟表示这行挂了定时 / 循环任务；右侧是倒计时：`now` / `<1m` / `8m` / `2h` / `3d`（到期显示 `now`，闹钟不消失） |
 | `v4.1-flash` | 模型标签（右侧对齐）：来自 `modelSelection`，`deepseek-` / `anthropic-` 前缀会去掉 |
 | `1m5s` | 运行或已运行时长（subagent 行才有）：`45s` / `12m` / `1h5m` |
 
@@ -100,7 +100,12 @@ subagent 的 `modelSelection` 常常为空，这时用最近一个祖先会话�
 ## 5. 定时任务行
 
 DSH 的 Automation tasks（`schedule.catalog()`）驱动的是「间歇式工作」的会话：它们大部分时间空闲，
-到点自己跑一次。卡片会把这些会话**即使不在跑也列出来**，右侧 `⏱` 是下一次触发时间；
+到点自己跑一次。卡片会把这些会话**即使不在跑也列出来**：
+
+- 标题前固定一个 `⏰`（小闹钟），一眼认出「这行是循环任务」；
+- 右侧是距下次触发的倒计时；
+- 刚跑完、倒计时到期时显示 `now`，但 `⏰` 保持——正在跑的循环任务不会看起来像普通会话。
+
 点它同样能跳过去看上一次跑出来的东西。
 
 ## 6. 本机外部 agent（和 dsh 同级）
@@ -113,7 +118,8 @@ DSH 的 Automation tasks（`schedule.catalog()`）驱动的是「间歇式工作
 ▾ ● codex   ChatGPT        69h35m 2%
 ```
 
-- `label` 的取值顺序：进程真实 cwd 的目录名 → 命令行里的 `--cwd/--cd/-C` → `ChatGPT`（桌面端 backend）→ 空。
+- 行名（`label`）的取值顺序：该 codex 会话的第一条真实用户消息（跳过 `environment_context` / `AGENTS.md` 注入）
+  → 进程真实 cwd 的目录名 → 命令行里的 `--cwd/--cd/-C` → `ChatGPT`（桌面端 backend）→ 空。
 - 只显示前 8 条；结果缓存 3 秒；接口需要登录态（未登录 401）。
 - 目的是「我在 DSH 里干活时，本机还有没有别的 agent 在偷偷跑」；点这一行可折叠子树。
 

@@ -83,6 +83,7 @@ dsh plugin --profile web add "$PWD"
 | `▾ ● codex 推进一下能推进的任务…  devline` | codex 的**会话标题**（首条真实用户消息）+ 目录名；不是目录名兜底 |
 | `▾ ● claude proj-alpha         12m 3%` | 本机另一个 agent（和 `dsh` 同级）：claude CLI，工作目录 `proj-alpha`，跑了 12 分钟、3% CPU |
 | `│  └─ computer use ×2            41m` | 它的子进程，自动按种类归组（`×N` + 最长的那个时长） |
+| `├─ ⏰ 推进 backlog 任务并设循环   now` | 挂了定时 / 循环任务的会话：标题前固定一个小闹钟，右侧是距下次触发的倒计时（到期显示 `now`，闹钟不消失） |
 | `│  ├─ ● Hubble advance_review_logic  running` | codex 的子对话（subagent 线程）：昵称 + agent 路径，右边是「正在工作 / 最后活动多久前」 |
 | `会话 6 · 子代理 3 · 运行中 5（live）` | 自检：快照里的会话数 / 子代理数 / 运行中数量；`live` 表示官方实时状态流 |
 
