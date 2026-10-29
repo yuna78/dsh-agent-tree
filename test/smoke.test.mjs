@@ -14,6 +14,7 @@ import {
   firstUserPrompt,
   promptTitleOf,
   pickCodexRoot,
+  parseLsofSessions,
 } from '../index.js';
 
 /**
@@ -659,4 +660,23 @@ test('buildInstances 把其它 dsh 实例的端口和会话拼成可渲染节点
   assert.deepEqual(buildInstances(null, null, null, now), []);
   const noPort = buildInstances([{ pid: 9, ports: [], sessionIds: [] }], sessions, statuses, now);
   assert.deepEqual(noPort, [], '没有端口也没有会话的实例不占行');
+});
+
+test('parseLsofSessions 抓的是带 session- 前缀的会话 id（和客户端会话表同一套 key）', () => {
+
+  const text = [
+    'p4242',
+    'fcwd',
+    'n/Users/x/.dsh/sessions/--proj--/session-0d929fec-57e1-490c-85e5-683af9b2fcb7/session.v4.jsonl.zstd',
+    'n/Users/x/.dsh/sessions/--proj--/session-0d929fec-57e1-490c-85e5-683af9b2fcb7/session.lock',
+    'n/Users/x/.dsh/sessions/--proj--/session-26a1e3d4-890d-4472-9cc8-523b1d485949/session.lock',
+    'n/Users/x/.dsh/sessions/--proj--/not-a-session/file',
+    'n/usr/lib/libSystem.B.dylib',
+  ].join('\n');
+  assert.deepEqual(parseLsofSessions(text), [
+    'session-0d929fec-57e1-490c-85e5-683af9b2fcb7',
+    'session-26a1e3d4-890d-4472-9cc8-523b1d485949',
+  ]);
+  assert.deepEqual(parseLsofSessions(''), []);
+  assert.deepEqual(parseLsofSessions(null), []);
 });

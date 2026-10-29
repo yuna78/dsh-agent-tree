@@ -32,7 +32,7 @@ const MAX_PROCESSES = 8;
 const MAX_CHILDREN = 12;
 const MAX_CHILD_DEPTH = 3;
 const PS_TIMEOUT_MS = 4000;
-const LSOF_TIMEOUT_MS = 1500;
+const LSOF_TIMEOUT_MS = 4000;
 
 // codex 的子对话（subagent threads）：读它自己的 rollout 记录，只读、只在本机。
 const CODEX_LOOKBACK_MS = 48 * 3600 * 1000;
@@ -413,10 +413,19 @@ async function instancePorts(pid) {
 
 async function instanceSessions(pid) {
   const output = await run('lsof', ['-nP', '-p', String(pid), '-Fn'], LSOF_TIMEOUT_MS).catch(() => '');
+  return parseLsofSessions(output);
+}
+
+/**
+ * lsof `-Fn` 输出里挑会话 id。
+ * 注意：卡片用的 session id 带 `session-` 前缀（存储里就是 `<项目>/session-<uuid>/`，会话 id = 目录名），
+ * 只抓 uuid 会和客户端会话表对不上，于是全都变成「认不出的会话」。
+ */
+export function parseLsofSessions(text) {
   const ids = new Set();
-  for (const line of String(output).split('\n')) {
+  for (const line of String(text).split('\n')) {
     if (!line.startsWith('n')) continue;
-    const match = /\/sessions\/[^/]+\/session-([0-9a-f-]{36})\//.exec(line);
+    const match = /\/sessions\/[^/]+\/(session-[0-9a-f-]{36})\//.exec(line);
     if (match !== null) ids.add(match[1]);
     if (ids.size >= MAX_INSTANCE_SESSIONS) break;
   }

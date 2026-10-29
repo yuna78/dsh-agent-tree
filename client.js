@@ -899,7 +899,11 @@ window.__ModuleLoader__.load({
             h(
               'span',
               { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
-              `${instance.count} 个会话`,
+              instance.count > 0
+                ? `${instance.count} 个会话`
+                : instance.unknown > 0
+                  ? `${instance.unknown} 个会话（不在本实例）`
+                  : '0 个会话',
             ),
           ),
         );
