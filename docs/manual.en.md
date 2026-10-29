@@ -6,7 +6,7 @@
 ┌──────────────────────────────────────────────────┐
 │ ● 5 个 agent 在跑 · 2 个定时                  ▾  │ ← headline + collapse
 ├──────────────────────────────────────────────────┤
-│ ▾ dsh                            2 个 workspace  │ ← root node (this DSH instance)
+│ ▾ ● dsh                          2 个 workspace  │ ← top-level agent: this DSH instance
 │ ├─ ▾ proj-alpha                              2  │ ← workspace
 │ │  ├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro  │ ← conversation (green)
 │ │  │  ├─ ● Explore repo structure      1m5s     │ ← subagent (blue)
@@ -15,9 +15,9 @@
 │ │  └─   Fix flaky login test      ⏱2h  v4.1-flash │ ← scheduled, currently idle
 │ ├─ ▾ my-repo                                 1  │
 │ │  └─ ● Triage CI failures        v4.1-pro       │
-│ ├─ ▾ ● claude  proj-alpha              12m 3%    │ ← external agent (a workspace peer)
+│ ▾ ● claude  proj-alpha                 12m 3%    │ ← top-level agent: local claude (dsh peer)
 │ │  └─ computer use ×2                    41m     │ ← its children, grouped by kind
-│ └─ ▾ ● codex   ChatGPT              69h35m 2%    │
+│ ▾ ● codex   ChatGPT                 69h35m 2%    │
 │    ├─ MCP ×2                             2h50m   │
 │    ├─ computer use ×2                     41m    │
 │    └─ code mode                           41m    │
@@ -83,11 +83,11 @@ says it was inherited. So every row can answer "which model is this".
 DSH Automation tasks (`schedule.catalog()`) drive intermittent sessions: idle most of the time, they fire on a timer.
 Those sessions are listed even while idle, with `⏱` showing the next fire time — clicking jumps to them as usual.
 
-## 6. Local external agents (peers of workspaces)
+## 6. Local external agents (peers of dsh)
 
-Read-only probe from the host half, listing running `claude` / `codex` CLIs on this machine. They are not a
-separate footer block: they are **branches under `dsh`, with exactly the same row spec as workspaces**
-(same font size, indent and collapse behaviour):
+Read-only probe from the host half, listing running `claude` / `codex` CLIs on this machine. They are
+**top-level nodes just like `dsh`** (same row spec: same font size, same dot, same collapse); only the dot
+color differs (claude orange / codex green):
 
 ```
 ├─ ● claude  proj-alpha        12m 3%

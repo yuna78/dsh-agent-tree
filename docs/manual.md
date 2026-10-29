@@ -6,7 +6,7 @@
 ┌──────────────────────────────────────────────────┐
 │ ● 5 个 agent 在跑 · 2 个定时                  ▾  │ ← 头部：统计 + 折叠
 ├──────────────────────────────────────────────────┤
-│ ▾ dsh                            2 个 workspace  │ ← 根节点（这个 DSH 实例）
+│ ▾ ● dsh                          2 个 workspace  │ ← 顶层 agent：这个 DSH 实例
 │ ├─ ▾ proj-alpha                              2  │ ← workspace
 │ │  ├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro  │ ← 对话（绿点）
 │ │  │  ├─ ● Explore repo structure      1m5s     │ ← subagent（蓝点）
@@ -15,12 +15,12 @@
 │ │  └─   Fix flaky login test      ⏱2h  v4.1-flash │ ← 有定时、当前空闲
 │ ├─ ▾ my-repo                                 1  │
 │ │  └─ ● Triage CI failures        v4.1-pro       │
-│ ├─ ▾ ● claude  proj-alpha              12m 3%    │ ← 本机外部 agent（和 workspace 同级）
+│ ▾ ● claude  proj-alpha                 12m 3%    │ ← 顶层 agent：本机 claude（和 dsh 同级）
 │ │  └─ computer use ×2                    41m     │ ← 它的子进程（按种类归组）
-│ └─ ▾ ● codex   ChatGPT              69h35m 2%    │
-│    ├─ MCP ×2                             2h50m   │
-│    ├─ computer use ×2                     41m    │
-│    └─ code mode                           41m    │
+│ ▾ ● codex   ChatGPT                 69h35m 2%    │
+│ ├─ MCP ×2                                2h50m   │
+│ ├─ computer use ×2                        41m    │
+│ └─ code mode                              41m    │
 │ 会话 6 · 子代理 3 · 运行中 5（live）             │ ← 自检行
 └──────────────────────────────────────────────────┘
 ```
@@ -38,17 +38,18 @@
 
 ## 1.5 层级
 
-卡片是 4 层结构（子代理越深越多，最多到第 5 层）：
+**顶层是「本机上的 agent」列表**：`dsh`（这个实例）和每个外部 `claude` / `codex` 是同级节点，
+各自往下展开：
 
 ```
-dsh（这个实例）
-└─ workspace
+dsh（这个实例）                  claude / codex（本机其它 agent）
+└─ workspace                     └─ 子进程（按种类归组）
    └─ 对话
       └─ subagent
          └─ 孙代理 …
 ```
 
-根节点 `dsh` 可以点击收起，一次折叠掉所有 workspace；它右侧显示 workspace 数量。
+所以从 `dsh` 往下是 4 层（workspace → 对话 → subagent → 孙代理），每个顶层 agent 都可以单独折叠。
 
 ## 2. 树行元素
 
@@ -85,14 +86,14 @@ DSH 的 Automation tasks（`schedule.catalog()`）驱动的是「间歇式工作
 到点自己跑一次。卡片会把这些会话**即使不在跑也列出来**，右侧 `⏱` 是下一次触发时间；
 点它同样能跳过去看上一次跑出来的东西。
 
-## 6. 本机外部 agent（和 workspace 同级）
+## 6. 本机外部 agent（和 dsh 同级）
 
-宿主半部的只读探测，列出本机正在跑的 `claude` / `codex` CLI。它们不是单独的页脚段，而是
-**挂在 `dsh` 下面的分支，和 workspace 完全同一套行规格**（同样的字号、同样的缩进、同样的折叠）：
+宿主半部的只读探测，列出本机正在跑的 `claude` / `codex` CLI。它们**和 `dsh` 一样是顶层节点**
+（同一套行规格：同样字号、同样圆点、同样折叠），区别只有圆点颜色（claude 橙 / codex 绿）：
 
 ```
-├─ ● claude  proj-alpha        12m 3%
-└─ ● codex   ChatGPT        69h35m 2%
+▾ ● claude  proj-alpha        12m 3%
+▾ ● codex   ChatGPT        69h35m 2%
 ```
 
 - `label` 的取值顺序：进程真实 cwd 的目录名 → 命令行里的 `--cwd/--cd/-C` → `ChatGPT`（桌面端 backend）→ 空。

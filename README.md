@@ -14,7 +14,7 @@
 
 ## 有什么
 
-- **真树 + git 风格连接线**：根节点 `dsh`（这个实例）→ `workspace` → `对话` → `subagent` → `孙代理`，`├─ └─ │` 逐层缩进；`▾ / ▸` 逐级折叠。
+- **顶层就是 agent 列表**：`dsh`（这个实例）和本机的 `claude` / `codex` 是**同级**的顶层节点，各自往下展开自己的树：`dsh → workspace → 对话 → subagent → 孙代理`；`├─ └─ │` 逐层缩进；`▾ / ▸` 逐级折叠。
 - **常驻入口**：空闲自动收成 `● Agent 树 ▸` 一条窄条，有活儿自动展开；手动折叠优先于自动折叠。
 - **颜色即层级**：顶层对话绿点、第 2 层 subagent 蓝点、第 3 层及更深紫点、已结束灰点。
 - **每行右侧模型标签**：读会话投影 `modelSelection`（`next` → `lastUsed`），压成 `v4.1-flash` 这类短标签；
@@ -22,7 +22,7 @@
 - **定时任务倒计时**：读 Automation tasks 的 `schedule.catalog()`，间歇式工作的会话**即使现在没在跑也会列出**，
   右侧显示 `⏱8m / ⏱2h / ⏱3d`，标题变成「N 个 agent 在跑 · M 个定时」。
 - **本机外部 agent 进程（也是树）**：插件宿主半部提供只读接口，用 `ps` + `lsof` 找到本机正在跑的 **claude / codex CLI**，
-  再按 `ppid` 把它们的子进程挂成子树（如 codex 的 `computer use ×4` / `MCP ×3` / `code mode`）。它们和 workspace **同级挂在 `dsh` 下面**、用同一套行规格，可折叠。
+  再按 `ppid` 把它们的子进程挂成子树（如 codex 的 `computer use ×4` / `MCP ×3` / `code mode`）。它们是**和 `dsh` 同级的顶层 agent 节点**，行规格完全一致，可折叠。
   ChatGPT 桌面端里的 `Codex Framework` 辅助进程本身不会被误认成 CLI。
 - **点一行就跳过去**：`subagentAddress(id)` + `uiWorkspace.openSession()`，连 subagent 也能直接落到它的对话。
 - **拖动 + 位置记忆**：拖标题栏移动，位置存 `localStorage`，下次还在原处。
@@ -64,12 +64,12 @@ dsh plugin --profile web add "$PWD"
 | 你看到的 | 意思 |
 |---|---|
 | `● 5 个 agent 在跑 · 2 个定时` | 有 5 个会话/子代理在跑，另有 2 个会话由定时任务驱动（可能当前空闲） |
-| `▾ dsh  4 个分支` | 根节点：当前这个 DSH 实例，右上是它下面的分支数（workspace + 外部 agent） |
+| `▾ ● dsh  2 个 workspace` | 本机上的一个 agent：当前这个 DSH 实例，右上是它的 workspace 数 |
 | `├─ ▾ proj-alpha  2` | workspace 分组，右上是它下面列出的分支数 |
 | `├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro` | 顶层对话在跑（绿点），8 分钟后有下一次定时，用 v4.1-pro |
 | `│  ├─ ● Explore repo structure  v4.1-flash  1m5s` | 它的 subagent（蓝点），已跑 1 分 05 秒 |
 | `│  │  └─ ● Run unit tests  v4.1-flash  9s` | 孙代理（紫点） |
-| `├─ ● claude proj-alpha         12m 3%` | 本机一个 claude CLI 进程（和 workspace 同级），工作目录 `proj-alpha`，跑了 12 分钟、3% CPU |
+| `▾ ● claude proj-alpha         12m 3%` | 本机另一个 agent（和 `dsh` 同级）：claude CLI，工作目录 `proj-alpha`，跑了 12 分钟、3% CPU |
 | `│  └─ computer use ×2            41m` | 它的子进程，自动按种类归组（`×N` + 最长的那个时长） |
 | `会话 6 · 子代理 3 · 运行中 5（live）` | 自检：快照里的会话数 / 子代理数 / 运行中数量；`live` 表示官方实时状态流 |
 

@@ -15,12 +15,12 @@ at which depth, on which model, for how long, and when its next scheduled run fi
 
 ## Features
 
-- **Real tree with git-style connectors** — root `dsh` (this instance) → `workspace` → `conversation` → `subagent` → grandchild, with `├─ └─ │` indentation per depth and `▾ / ▸` collapse.
+- **The top level is an agent list** — `dsh` (this instance) and the local `claude` / `codex` processes are **siblings**, each expanding its own tree: `dsh → workspace → conversation → subagent → grandchild`, with `├─ └─ │` indentation and `▾ / ▸` collapse.
 - **Always-on entry** — idle collapses to `● Agent tree ▸`; work re-expands it; manual collapse wins.
 - **Color = depth** — green dot for top-level conversations, blue for level-2 subagents, violet for deeper ones, grey for finished rows.
 - **Per-row model chip** (right aligned) — from the session projection `modelSelection` (`next` → `lastUsed`), shortened to `v4.1-flash`; subagents without their own record inherit the parent's (tooltip says so).
 - **Scheduled-task countdown** — reads `schedule.catalog()` from Automation tasks; sessions driven by a schedule are listed even while idle, with `⏱8m / ⏱2h / ⏱3d` and a `N running · M scheduled` headline.
-- **Local external agent processes, also as a tree** — the plugin's host half exposes a read-only endpoint that finds running **claude / codex CLIs** via `ps` + `lsof` and nests their children by `ppid` (e.g. codex's `computer use ×4` / `MCP ×3` / `code mode`). They hang under `dsh` as **siblings of workspaces**, with the same row spec, and collapse like any branch. ChatGPT desktop's `Codex Framework` helpers are not mistaken for CLIs themselves.
+- **Local external agent processes, also as a tree** — the plugin's host half exposes a read-only endpoint that finds running **claude / codex CLIs** via `ps` + `lsof` and nests their children by `ppid` (e.g. codex's `computer use ×4` / `MCP ×3` / `code mode`). They show up as **top-level agents next to `dsh`**, with exactly the same row spec. ChatGPT desktop's `Codex Framework` helpers are not mistaken for CLIs themselves.
 - **Click to jump** — `subagentAddress()` + `uiWorkspace.openSession()`, including subagents.
 - **Draggable, remembers its position** — stored in `localStorage`.
 
@@ -57,7 +57,7 @@ dsh plugin --profile web add "$PWD"
 | What you see | Meaning |
 |---|---|
 | `● 5 个 agent 在跑 · 2 个定时` | 5 sessions/subagents are running; 2 more are schedule-driven (may be idle right now) |
-| `▾ dsh  4 个分支` | root node: this DSH instance, branch count on the right (workspaces + external agents) |
+| `▾ ● dsh  2 个 workspace` | one local agent — this DSH instance; workspace count on the right |
 | `├─ ▾ proj-alpha  2` | workspace group, count on the right |
 | `├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro` | top-level conversation running (green), next scheduled run in 8 min, on v4.1-pro |
 | `│  ├─ ● Explore repo structure  v4.1-flash  1m5s` | its subagent (blue), running for 1m05s |

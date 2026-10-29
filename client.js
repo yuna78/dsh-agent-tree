@@ -601,13 +601,24 @@ window.__ModuleLoader__.load({
       const rows = [];
       const processList = Array.isArray(processes) ? processes : [];
 
-      // 根节点：dsh 实例。workspace 和外部 claude/codex 进程都挂在这一层，同一套行规格。
+      // 顶层：本机上的 agent——dsh 自己 + 每个外部 claude/codex，彼此同级。
       const rootKey = 'root';
       const rootOpen = !collapsedNodes[rootKey];
-      const branches = [
-        ...tree.groups.map((group) => ({ type: 'group', key: `g:${group.id}`, group })),
-        ...processList.map((proc) => ({ type: 'proc', key: `proc:${proc.pid}`, proc })),
-      ];
+      const caret = (open) =>
+        h(
+          'span',
+          {
+            style: {
+              width: 8,
+              flex: 'none',
+              fontSize: 8.5,
+              color: 'var(--dsw-alias-label-tertiary)',
+              textAlign: 'center',
+            },
+          },
+          open ? '▾' : '▸',
+        );
+
       rows.push(
         h(
           'div',
@@ -625,114 +636,49 @@ window.__ModuleLoader__.load({
               minWidth: 0,
             },
           },
-          h(
-            'span',
-            {
-              style: {
-                width: 8,
-                flex: 'none',
-                fontSize: 8.5,
-                color: 'var(--dsw-alias-label-tertiary)',
-                textAlign: 'center',
-              },
-            },
-            rootOpen ? '▾' : '▸',
-          ),
-          clampSpan('dsh', { flex: 'none', fontSize: 11, fontWeight: 700, color: 'var(--dsw-alias-label-primary)' }),
+          caret(rootOpen),
+          h(Dot, { color: DOT.conversation, active: tree.running > 0 }),
+          clampSpan('dsh', { flex: 'none', fontSize: 11, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }),
           h('span', { style: { flex: 1 } }),
           h(
             'span',
             { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
-            `${branches.length} 个分支`,
+            `${tree.groups.length} 个 workspace`,
           ),
         ),
       );
 
-      if (rootOpen) branches.forEach((branch, branchIndex) => {
-        const isLastBranch = branchIndex === branches.length - 1;
-        const branchConnector = isLastBranch ? '└─' : '├─';
-        const branchPrefix = isLastBranch ? '   ' : '│  ';
-
-        if (branch.type === 'group') {
-          const group = branch.group;
-          const groupOpen = !collapsedNodes[branch.key];
-          rows.push(
-            h(
-              'div',
-              {
-                key: branch.key,
-                className: 'dsh-agent-tree-mini-row',
-                onClick: () => toggle(branch.key),
-                title: group.label,
-                style: {
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: '4px 8px 2px 12px',
-                  cursor: 'pointer',
-                  minWidth: 0,
-                },
-              },
-              glyph(branchConnector),
-              h(
-                'span',
-                {
-                  onClick: (event) => {
-                    event.stopPropagation();
-                    toggle(branch.key);
-                  },
-                  style: {
-                    width: 8,
-                    flex: 'none',
-                    fontSize: 8.5,
-                    color: 'var(--dsw-alias-label-tertiary)',
-                    textAlign: 'center',
-                  },
-                },
-                groupOpen ? '▾' : '▸',
-              ),
-              clampSpan(group.label, { fontSize: 11, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }),
-              h(
-                'span',
-                { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
-                String(group.items.length),
-              ),
-            ),
-          );
-          if (groupOpen) renderNodes(group.items, branchPrefix, 1, rows, '');
-          return;
-        }
-
-        const proc = branch.proc;
-        const children = Array.isArray(proc.children) ? proc.children : [];
-        const procOpen = !collapsedNodes[branch.key];
-        const childGroups = groupProcessChildren(children);
+      if (rootOpen) tree.groups.forEach((group, groupIndex) => {
+        const isLastGroup = groupIndex === tree.groups.length - 1;
+        const groupConnector = isLastGroup ? '└─' : '├─';
+        const groupPrefix = isLastGroup ? '   ' : '│  ';
+        const groupKey = `g:${group.id}`;
+        const groupOpen = !collapsedNodes[groupKey];
         rows.push(
           h(
             'div',
             {
-              key: branch.key,
+              key: groupKey,
               className: 'dsh-agent-tree-mini-row',
-              onClick: () => {
-                if (children.length === 0) return;
-                toggle(branch.key);
-              },
-              title: `${proc.kind} · pid ${proc.pid}\n${proc.cwd || ''}${
-                children.length > 0 ? `\n${children.length} 个子进程` : ''
-              }`,
+              onClick: () => toggle(groupKey),
+              title: group.label,
               style: {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
-                padding: '3px 8px 3px 12px',
-                cursor: children.length > 0 ? 'pointer' : 'default',
+                padding: '4px 8px 2px 12px',
+                cursor: 'pointer',
                 minWidth: 0,
               },
             },
-            glyph(branchConnector),
+            glyph(groupConnector),
             h(
               'span',
               {
+                onClick: (event) => {
+                  event.stopPropagation();
+                  toggle(groupKey);
+                },
                 style: {
                   width: 8,
                   flex: 'none',
@@ -741,8 +687,48 @@ window.__ModuleLoader__.load({
                   textAlign: 'center',
                 },
               },
-              children.length === 0 ? '' : procOpen ? '▾' : '▸',
+              groupOpen ? '▾' : '▸',
             ),
+            clampSpan(group.label, { fontSize: 11, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }),
+            h(
+              'span',
+              { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
+              String(group.items.length),
+            ),
+          ),
+        );
+        if (groupOpen) renderNodes(group.items, groupPrefix, 1, rows, '');
+      });
+
+      // 外部 claude / codex：和 dsh 同级的顶层节点（不缩进），子进程挂在它们下面。
+      processList.forEach((proc) => {
+        const procKey = `proc:${proc.pid}`;
+        const children = Array.isArray(proc.children) ? proc.children : [];
+        const procOpen = !collapsedNodes[procKey];
+        const childGroups = groupProcessChildren(children);
+        rows.push(
+          h(
+            'div',
+            {
+              key: procKey,
+              className: 'dsh-agent-tree-mini-row',
+              onClick: () => {
+                if (children.length === 0) return;
+                toggle(procKey);
+              },
+              title: `${proc.kind} · pid ${proc.pid}\n${proc.cwd || ''}${
+                children.length > 0 ? `\n${children.length} 个子进程` : ''
+              }`,
+              style: {
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '4px 8px 2px 10px',
+                cursor: children.length > 0 ? 'pointer' : 'default',
+                minWidth: 0,
+              },
+            },
+            children.length === 0 ? h('span', { style: { width: 8, flex: 'none' } }) : caret(procOpen),
             h(Dot, { color: KIND_DOT[proc.kind] || DOT.deep, active: true }),
             clampSpan(proc.kind, {
               flex: 'none',
@@ -761,14 +747,14 @@ window.__ModuleLoader__.load({
             ),
           ),
         );
-        if (!procOpen || childGroups.length === 0) return;
+        if (!procOpen) return;
         childGroups.forEach((child, childIndex) => {
           const isLastChild = childIndex === childGroups.length - 1;
           rows.push(
             h(
               'div',
               {
-                key: `${branch.key}:${child.label}`,
+                key: `${procKey}:${child.label}`,
                 title: child.count > 1 ? `${child.count} 个 ${child.label} 子进程` : child.label,
                 style: {
                   display: 'flex',
@@ -778,7 +764,7 @@ window.__ModuleLoader__.load({
                   minWidth: 0,
                 },
               },
-              glyph(`${branchPrefix}${isLastChild ? '└─' : '├─'}`),
+              glyph(isLastChild ? '└─' : '├─'),
               clampSpan(child.count > 1 ? `${child.label} ×${child.count}` : child.label, {
                 fontSize: 10.5,
                 color: 'var(--dsw-alias-label-tertiary)',
