@@ -44,6 +44,14 @@ window.__ModuleLoader__.load({
     };
     const KIND_DOT = { claude: '#d97757', codex: '#10a37f' };
 
+    /** 需要你拍板的状态：琥珀色，和「在跑」的绿/蓝明确区分。 */
+    const WAIT = {
+      question: { color: '#d97706', badge: '待答', title: '等你回答 agent 的问题' },
+      approval: { color: '#d97706', badge: '待批', title: '等你批准一次操作' },
+      'plan-review': { color: '#d97706', badge: '待审', title: '等你审阅 agent 的计划' },
+    };
+    const WAIT_ORDER = { question: 0, approval: 1, 'plan-review': 2 };
+
     const GLYPH_FONT = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 
     // ------------------------------------------------------------------ 纯函数
@@ -74,8 +82,8 @@ window.__ModuleLoader__.load({
     function sortNodes(nodes) {
       nodes.sort(
         (a, b) =>
-          Number(b.active) - Number(a.active) ||
-          Number(hasSchedule(b)) - Number(hasSchedule(a)) ||
+          nodeRank(b) - nodeRank(a) ||
+          (WAIT_ORDER[b.waiting] ?? 9) - (WAIT_ORDER[a.waiting] ?? 9) ||
           (b.row.updatedAt || 0) - (a.row.updatedAt || 0),
       );
       for (const node of nodes) sortNodes(node.children);
@@ -86,6 +94,21 @@ window.__ModuleLoader__.load({
       const live = statuses && typeof statuses.get === 'function' ? statuses.get(row.id) : undefined;
       if (live && typeof live.running === 'boolean') return live.running;
       return row.running === true;
+    }
+
+    /** 这个会话有没有在等你做判断：`question` / `approval` / `plan-review`。 */
+    function waitingKind(statuses, sessionId) {
+      const live = statuses && typeof statuses.get === 'function' ? statuses.get(sessionId) : undefined;
+      const kind = live && live.pendingInteraction && live.pendingInteraction.kind;
+      return WAIT[kind] ? kind : undefined;
+    }
+
+    /** 节点的排序权重：等你拍板 > 在跑 > 有定时任务 > 其它。 */
+    function nodeRank(node) {
+      if (node && node.waiting) return 3;
+      if (node && node.active) return 2;
+      if (hasSchedule(node)) return 1;
+      return 0;
     }
 
     function baseName(path) {
@@ -286,6 +309,17 @@ window.__ModuleLoader__.load({
       const activeRows = rows.filter((row) => isRunning(row, statuses));
       for (const row of activeRows) attach(row);
 
+      // 需要你判断的会话：可能已经不在跑（等输入），但必须出现在最上面
+      const waitingNodes = new Set();
+      for (const row of rows) {
+        const kind = waitingKind(statuses, row.id);
+        if (kind === undefined) continue;
+        const node = attach(row);
+        if (!node) continue;
+        node.waiting = kind;
+        waitingNodes.add(node);
+      }
+
       // 定时任务（间歇式工作的会话）：不在跑也要列出来，标上倒计时
       const scheduleEntries = schedules instanceof Map ? schedules : new Map();
       const scheduledNodes = new Set();
@@ -311,6 +345,7 @@ window.__ModuleLoader__.load({
       return {
         groups: ordered,
         running: activeRows.length,
+        waiting: waitingNodes.size,
         scheduled: scheduledNodes.size,
         conversations: conversationNodes.size,
         stats,
@@ -440,9 +475,34 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** 「等你拍板」的小徽标：琥珀色 `待答` / `待批` / `待审`。 */
+    function WaitBadge({ kind }) {
+      const info = WAIT[kind];
+      if (!info) return null;
+      return h(
+        'span',
+        {
+          title: info.title,
+          style: {
+            flex: 'none',
+            fontSize: 8.5,
+            fontWeight: 600,
+            lineHeight: 1,
+            padding: '1px 3px',
+            borderRadius: 3,
+            color: info.color,
+            border: `1px solid ${info.color}55`,
+            background: `${info.color}14`,
+          },
+        },
+        info.badge,
+      );
+    }
+
     function MiniInner({ tree, onOpen, mode, processes }) {
       const [manualCollapsed, setManualCollapsed] = React.useState(null);
-      const collapsed = manualCollapsed === null ? tree.running === 0 && tree.scheduled === 0 : manualCollapsed;
+      const collapsed =
+        manualCollapsed === null ? tree.running === 0 && tree.scheduled === 0 && tree.waiting === 0 : manualCollapsed;
       const [collapsedNodes, setCollapsedNodes] = React.useState({});
       const now = useNow();
       const [pos, setPos] = React.useState(() => {
@@ -547,13 +607,17 @@ window.__ModuleLoader__.load({
                   },
                   hasChildren ? (expanded ? '▾' : '▸') : '',
                 ),
-                node.active ? h(Dot, { color: DOT.conversation, active: true }) : null,
+                node.waiting
+                  ? h(Dot, { color: WAIT[node.waiting].color, active: true })
+                  : node.active
+                    ? h(Dot, { color: DOT.conversation, active: true })
+                    : null,
                 clampSpan(shortTitle(node.row), {
                   fontSize: 10.5,
-                  fontWeight: node.active ? 600 : 500,
-                  color: 'var(--dsw-alias-label-primary)',
+                  fontWeight: node.waiting || node.active ? 600 : 500,
+                  color: node.waiting ? WAIT[node.waiting].color : 'var(--dsw-alias-label-primary)',
                 }),
-                clock,
+                node.waiting ? h(WaitBadge, { kind: node.waiting }) : clock,
                 h(ModelChip, { text: model, inherited: own === '' && model !== '' }),
               ),
             );
@@ -580,12 +644,16 @@ window.__ModuleLoader__.load({
                 },
               },
               glyph(connector),
-              h(Dot, { color, active: node.active }),
+              h(Dot, { color: node.waiting ? WAIT[node.waiting].color : color, active: node.active || Boolean(node.waiting) }),
               clampSpan(shortTitle(node.row), {
                 fontSize: 10.5,
-                color: node.active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-tertiary)',
+                color: node.waiting
+                  ? WAIT[node.waiting].color
+                  : node.active
+                    ? 'var(--dsw-alias-label-primary)'
+                    : 'var(--dsw-alias-label-tertiary)',
               }),
-              clock,
+              node.waiting ? h(WaitBadge, { kind: node.waiting }) : clock,
               h(ModelChip, { text: model, inherited: own === '' && model !== '' }),
               h(
                 'span',
@@ -637,7 +705,10 @@ window.__ModuleLoader__.load({
             },
           },
           caret(rootOpen),
-          h(Dot, { color: DOT.conversation, active: tree.running > 0 }),
+          h(Dot, {
+            color: tree.waiting > 0 ? WAIT.question.color : DOT.conversation,
+            active: tree.running > 0 || tree.waiting > 0,
+          }),
           clampSpan('dsh', { flex: 'none', fontSize: 11, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }),
           h('span', { style: { flex: 1 } }),
           h(
@@ -782,11 +853,16 @@ window.__ModuleLoader__.load({
       const visible = rows.slice(0, MAX_ROWS);
       const stats = tree.stats || { total: 0, subagents: 0, runningLive: 0 };
       const statsLine = `会话 ${stats.total} · 子代理 ${stats.subagents} · 运行中 ${stats.runningLive}（${mode}）`;
+      const busyParts = [];
+      if (tree.running > 0) busyParts.push(`${tree.running} 个在跑`);
+      if (tree.scheduled > 0) busyParts.push(`${tree.scheduled} 个定时`);
       const headline =
-        tree.running > 0
-          ? `${tree.running} 个 agent 在跑${tree.scheduled > 0 ? ` · ${tree.scheduled} 个定时` : ''}`
-          : tree.scheduled > 0
-            ? `空闲 · ${tree.scheduled} 个定时待命`
+        tree.waiting > 0
+          ? `${tree.waiting} 个等你处理${busyParts.length > 0 ? ` · ${busyParts.join(' · ')}` : ''}`
+          : busyParts.length > 0
+            ? `${tree.running > 0 ? `${tree.running} 个 agent 在跑` : '空闲'}${
+                tree.scheduled > 0 ? ` · ${tree.scheduled} 个定时` : ''
+              }`
             : 'Agent 树';
 
       return h(
@@ -821,7 +897,10 @@ window.__ModuleLoader__.load({
               borderBottom: collapsed ? 'none' : '1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.16))',
             },
           },
-          h(Dot, { color: DOT.conversation, active: tree.running > 0 }),
+          h(Dot, {
+            color: tree.waiting > 0 ? WAIT.question.color : DOT.conversation,
+            active: tree.running > 0 || tree.waiting > 0,
+          }),
           h(
             'span',
             {
@@ -925,18 +1004,39 @@ window.__ModuleLoader__.load({
       return snapshot;
     }
 
+    /**
+     * 拿 `remote.schedule` 命名空间。
+     * 它是别的客户端插件挂上来的服务（服务名就是 `remote.schedule`），
+     * 只读 `ctx.remote.schedule` 在命名空间还没挂上时会拿到 undefined，
+     * 所以再用 `ctx.get('remote.schedule')` 试一次。
+     */
+    function scheduleRemote(ctx) {
+      if (!ctx) return undefined;
+      try {
+        const direct = ctx.remote && ctx.remote.schedule;
+        if (direct && typeof direct.catalog === 'function') return direct;
+      } catch (err) {
+        /* 服务还没就绪：继续走 ctx.get */
+      }
+      try {
+        const service = typeof ctx.get === 'function' ? ctx.get('remote.schedule') : undefined;
+        if (service && typeof service.catalog === 'function') return service;
+      } catch (err) {
+        /* 没有 schedule 能力就当没有定时任务 */
+      }
+      return undefined;
+    }
+
     /** 定时任务目录：轮询 + 跟随 `schedule/changed`。 */
     function useScheduleCatalog() {
       const [schedules, setSchedules] = React.useState(() => new Map());
       React.useEffect(() => {
         let alive = true;
         const read = async () => {
-          const ctx = clientCtx;
-          if (!ctx || !ctx.remote || !ctx.remote.schedule || typeof ctx.remote.schedule.catalog !== 'function') {
-            return;
-          }
+          const schedule = scheduleRemote(clientCtx);
+          if (!schedule) return;
           try {
-            const result = await ctx.remote.schedule.catalog();
+            const result = await schedule.catalog();
             if (!alive || !result || result.ok !== true) return;
             setSchedules(toScheduleMap(result.value));
           } catch (err) {
@@ -1080,6 +1180,9 @@ window.__ModuleLoader__.load({
         baseName,
         workspaceLabel,
         isRunning,
+        waitingKind,
+        nodeRank,
+        scheduleRemote,
         sortNodes,
       groupProcessChildren,
         modelLabel,

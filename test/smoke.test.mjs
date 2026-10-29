@@ -175,6 +175,74 @@ test('selectActiveTree hangs an orphan subagent directly under the workspace', (
   assert.equal(items[0].row.id, 'kid');
 });
 
+test('waitingKind reads pendingInteraction.kind from the live status map', () => {
+  const { waitingKind } = clientModule.__test;
+  const statuses = new Map([
+    ['q', { running: false, pendingInteraction: { kind: 'question' } }],
+    ['a', { running: true, pendingInteraction: { kind: 'approval' } }],
+    ['p', { running: false, pendingInteraction: { kind: 'plan-review' } }],
+    ['n', { running: true }],
+  ]);
+  assert.equal(waitingKind(statuses, 'q'), 'question');
+  assert.equal(waitingKind(statuses, 'a'), 'approval');
+  assert.equal(waitingKind(statuses, 'p'), 'plan-review');
+  assert.equal(waitingKind(statuses, 'n'), undefined, '只是跑着、没等你，就不算待处理');
+  assert.equal(waitingKind(statuses, 'missing'), undefined);
+  assert.equal(waitingKind(null, 'q'), undefined);
+});
+
+test('selectActiveTree keeps a waiting session that is not running, and ranks it first', () => {
+  const { selectActiveTree } = clientModule.__test;
+  const state = {
+    ids: ['q', 'busy'],
+    byId: {
+      q: { id: 'q', displayTitle: '等你回答', updatedAt: 10, running: false },
+      busy: { id: 'busy', displayTitle: '在跑', updatedAt: 900, running: true },
+    },
+  };
+  const statuses = new Map([['q', { running: false, pendingInteraction: { kind: 'question' } }]]);
+  const tree = selectActiveTree(state, workspaceState, statuses);
+  assert.equal(tree.waiting, 1);
+  assert.equal(tree.running, 1);
+  const items = tree.groups.flatMap((group) => group.items);
+  const waitingNode = items.find((node) => node.row.id === 'q');
+  assert.equal(waitingNode.waiting, 'question', '不在跑也要挂进树里，并带上待处理类型');
+  const ranked = items.filter((node) => node.waiting || node.active);
+  assert.equal(ranked[0].row.id, 'q', '等你拍板的排在最前面（比在跑的还前）');
+});
+
+test('nodeRank orders waiting > running > scheduled > idle', () => {
+  const { nodeRank } = clientModule.__test;
+  assert.equal(nodeRank({ waiting: 'approval', active: true }), 3);
+  assert.equal(nodeRank({ active: true }), 2);
+  assert.equal(nodeRank({ schedule: { count: 1, nextAt: 0 } }), 1);
+  assert.equal(nodeRank({}), 0);
+  assert.equal(nodeRank(null), 0);
+});
+
+test('scheduleRemote falls back to ctx.get("remote.schedule")', () => {
+  const { scheduleRemote } = clientModule.__test;
+  assert.equal(scheduleRemote(undefined), undefined);
+  assert.equal(scheduleRemote({}), undefined);
+  const direct = { catalog: () => Promise.resolve({ ok: true, value: [] }) };
+  assert.equal(scheduleRemote({ remote: { schedule: direct } }), direct);
+  const viaGet = { catalog: () => Promise.resolve({ ok: true, value: [] }) };
+  assert.equal(
+    scheduleRemote({ remote: {}, get: (name) => (name === 'remote.schedule' ? viaGet : undefined) }),
+    viaGet,
+    '命名空间服务还没挂成属性时用 ctx.get 兜底',
+  );
+  assert.equal(
+    scheduleRemote({
+      get: () => {
+        throw new Error('no such service');
+      },
+    }),
+    undefined,
+    '服务不存在时安静返回 undefined',
+  );
+});
+
 test('selectActiveTree prefers live status map over the snapshot flag', () => {
   const { selectActiveTree } = clientModule.__test;
   const idle = {

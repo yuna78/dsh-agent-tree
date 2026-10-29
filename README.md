@@ -19,8 +19,11 @@
 - **颜色即层级**：顶层对话绿点、第 2 层 subagent 蓝点、第 3 层及更深紫点、已结束灰点。
 - **每行右侧模型标签**：读会话投影 `modelSelection`（`next` → `lastUsed`），压成 `v4.1-flash` 这类短标签；
   subagent 没有自己的记录时继承上级（悬停会标注）。
-- **定时任务倒计时**：读 Automation tasks 的 `schedule.catalog()`，间歇式工作的会话**即使现在没在跑也会列出**，
-  右侧显示 `⏱8m / ⏱2h / ⏱3d`，标题变成「N 个 agent 在跑 · M 个定时」。
+- **定时任务倒计时**：读 Automation tasks 的 `schedule.catalog()`（服务名 `remote.schedule`，命名空间没挂上时用
+  `ctx.get` 兜底），间歇式工作的会话**即使现在没在跑也会列出**，右侧显示 `⏱8m / ⏱2h / ⏱3d`。
+- **需要你拍板的会话来最上面**：agent 提问、等你批准操作、等你审阅计划时（`pendingInteraction` = `question` /
+  `approval` / `plan-review`），那一行**换成琥珀色**、带 `待答 / 待批 / 待审` 小徽标，并且**排在在跑的之前**——
+  以前这类会话因为「没在跑」会直接消失。
 - **本机外部 agent 进程（也是树）**：插件宿主半部提供只读接口，用 `ps` + `lsof` 找到本机正在跑的 **claude / codex CLI**，
   再按 `ppid` 把它们的子进程挂成子树（如 codex 的 `computer use ×4` / `MCP ×3` / `code mode`）。它们是**和 `dsh` 同级的顶层 agent 节点**，行规格完全一致，可折叠。
   ChatGPT 桌面端里的 `Codex Framework` 辅助进程本身不会被误认成 CLI。
@@ -63,7 +66,8 @@ dsh plugin --profile web add "$PWD"
 
 | 你看到的 | 意思 |
 |---|---|
-| `● 5 个 agent 在跑 · 2 个定时` | 有 5 个会话/子代理在跑，另有 2 个会话由定时任务驱动（可能当前空闲） |
+| `● 1 个等你处理 · 5 个在跑 · 2 个定时` | 有 1 个会话在等你拍板（提问/审批/计划审阅），5 个在跑，2 个由定时任务驱动 |
+| `├─ ● 智力研发团队 1  待答  v4.1-pro` | 这一行**要你决定**：琥珀色圆点 + `待答` 徽标，排在在跑的会话之前 |
 | `▾ ● dsh  2 个 workspace` | 本机上的一个 agent：当前这个 DSH 实例，右上是它的 workspace 数 |
 | `├─ ▾ proj-alpha  2` | workspace 分组，右上是它下面列出的分支数 |
 | `├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro` | 顶层对话在跑（绿点），8 分钟后有下一次定时，用 v4.1-pro |

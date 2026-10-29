@@ -99,6 +99,8 @@ const CLIENT_MARKERS = [
   ['projectionValues', '投影读取'],
   ['modelSelection', '模型标签数据源'],
   ['schedule.catalog', '定时任务数据源'],
+  ["'remote.schedule'", '定时任务命名空间兜底'],
+  ['pendingInteraction', '待你处理（提问/审批/计划审阅）数据源'],
   ['api-session/status', '实时 running 事件'],
   ['/local/dsh-agent-tree/processes', '外部进程接口'],
   ['workspaces.list.getSnapshot', 'workspace 归属'],

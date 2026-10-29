@@ -37,6 +37,23 @@
 Auto-collapse rule: collapse when `running === 0 && scheduled === 0`; expand automatically as soon as work appears
 (unless you collapsed it manually).
 
+## 1.4 Sessions waiting for your call
+
+When an agent asks a question (`ask_user_question`), waits for an approval, or waits for a plan review, the session
+stops at "waiting for input" and no longer counts as running. The card puts those rows **first**, in amber, with a badge:
+
+```
+├─ ● Research team 1         待答   v4.1-pro
+│  └─ ● Plan review          待审
+```
+
+- `待答` — the agent asked a question and waits for your answer.
+- `待批` — waiting for you to approve one operation.
+- `待审` — waiting for your plan review.
+
+They sort above running rows, so they can never be collapsed away for "not running"; the headline becomes
+`N waiting for you · M running · K scheduled`.
+
 ## 1.5 Levels
 
 Four levels (plus grandchild, i.e. five in the deepest row):
