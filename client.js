@@ -787,9 +787,9 @@ window.__ModuleLoader__.load({
                 if (children.length === 0) return;
                 toggle(procKey);
               },
-              title: `${proc.kind} · pid ${proc.pid}\n${proc.cwd || ''}${
-                children.length > 0 ? `\n${children.length} 个子进程` : ''
-              }`,
+              title: `${proc.kind} · pid ${proc.pid}${
+                proc.sessionTitle ? `\n${proc.sessionTitle}` : ''
+              }${proc.cwd ? `\n${proc.cwd}` : ''}${children.length > 0 ? `\n${children.length} 个子进程` : ''}`,
               style: {
                 display: 'flex',
                 alignItems: 'center',
@@ -811,6 +811,13 @@ window.__ModuleLoader__.load({
               fontSize: 10.5,
               color: 'var(--dsw-alias-label-secondary)',
             }),
+            proc.sessionTitle && proc.cwd && proc.cwd !== '/' && proc.cwd !== ''
+              ? clampSpan(baseName(proc.cwd), {
+                  flex: 'none',
+                  fontSize: 9,
+                  color: 'var(--dsw-alias-label-tertiary)',
+                })
+              : null,
             h(
               'span',
               { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },

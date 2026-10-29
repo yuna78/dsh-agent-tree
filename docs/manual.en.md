@@ -151,6 +151,18 @@ hanging it under the codex row:
   processes the cwd is usually `/`, so a session whose `originator` contains `Desktop` wins.
 - At most 8 sub-conversations, 3 levels deep. Local read-only, no network.
 
+### 6.3 The codex row's name
+
+The row is named after **the first real request of that codex session** (skipping codex's own
+`environment_context` / `AGENTS.md instructions` injections), followed by a grey directory chip:
+
+```
+▾ ● codex 推进一下能推进的任务，看看流水线…   devline   69h35m 2%
+```
+
+- Falls back to the directory name / `ChatGPT` only when the rollout has no user message yet.
+- With several codex processes in one cwd, each claims a distinct session by recency, so rows never share a name.
+
 ## 7. Interaction
 
 | Action | Effect |

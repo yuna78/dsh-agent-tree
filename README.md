@@ -27,6 +27,9 @@
 - **本机外部 agent 进程（也是树）**：插件宿主半部提供只读接口，用 `ps` + `lsof` 找到本机正在跑的 **claude / codex CLI**，
   再按 `ppid` 把它们的子进程挂成子树（如 codex 的 `computer use ×4` / `MCP ×3` / `code mode`）。它们是**和 `dsh` 同级的顶层 agent 节点**，行规格完全一致，可折叠。
   ChatGPT 桌面端里的 `Codex Framework` 辅助进程本身不会被误认成 CLI。
+- **codex 的行名是它自己的会话标题**：从 rollout 里取第一条**真实**用户消息（跳过 `environment_context` /
+  `AGENTS.md` 这类上下文注入）当行名，比如 `codex 推进一下能推进的任务…  devline`；取不到才回落到目录名。
+  多个 codex 进程同 cwd 时会各认领一条会话，不会三行同名。
 - **codex 的子对话也看得见**：读 codex 自己的会话记录（`~/.codex/sessions/**/rollout-*.jsonl` 的第一行
   `session_meta`），按 `parent_thread_id` 还原它的 subagent 线程树，挂在 codex 那行下面——
   `● Hubble advance_review_logic  running` / `● Carson review_nextarchive_code  16m前`。
@@ -77,6 +80,7 @@ dsh plugin --profile web add "$PWD"
 | `├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro` | 顶层对话在跑（绿点），8 分钟后有下一次定时，用 v4.1-pro |
 | `│  ├─ ● Explore repo structure  v4.1-flash  1m5s` | 它的 subagent（蓝点），已跑 1 分 05 秒 |
 | `│  │  └─ ● Run unit tests  v4.1-flash  9s` | 孙代理（紫点） |
+| `▾ ● codex 推进一下能推进的任务…  devline` | codex 的**会话标题**（首条真实用户消息）+ 目录名；不是目录名兜底 |
 | `▾ ● claude proj-alpha         12m 3%` | 本机另一个 agent（和 `dsh` 同级）：claude CLI，工作目录 `proj-alpha`，跑了 12 分钟、3% CPU |
 | `│  └─ computer use ×2            41m` | 它的子进程，自动按种类归组（`×N` + 最长的那个时长） |
 | `│  ├─ ● Hubble advance_review_logic  running` | codex 的子对话（subagent 线程）：昵称 + agent 路径，右边是「正在工作 / 最后活动多久前」 |

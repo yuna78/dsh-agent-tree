@@ -8,8 +8,12 @@ import {
   childLabel,
   parseRolloutMeta,
   codexThreadsUnder,
-  pickCodexRoot,
   codexHome,
+  userPromptOf,
+  shortPrompt,
+  firstUserPrompt,
+  promptTitleOf,
+  pickCodexRoot,
 } from '../index.js';
 
 /**
@@ -541,4 +545,71 @@ test('codexHome respects CODEX_HOME', () => {
   delete process.env.CODEX_HOME;
   assert.ok(codexHome().endsWith('/.codex'));
   if (before !== undefined) process.env.CODEX_HOME = before;
+});
+
+// ------------------------------------------------------- codex 会话标题 / 认领
+
+test('userPromptOf picks the real user sentence, not codex context wrappers', () => {
+  const wrap = {
+    type: 'response_item',
+    payload: { role: 'user', content: [{ type: 'input_text', text: '<environment_context>\n<cwd>/x</cwd>' }] },
+  };
+  assert.equal(userPromptOf(wrap), '', '上下文包裹不算用户说的话');
+  const agentsMd = { type: 'response_item', payload: { role: 'user', content: [{ type: 'input_text', text: '# AGENTS.md instructions for /x' }] } };
+  assert.equal(userPromptOf(agentsMd), '', 'AGENTS.md 注入也不算');
+  const real = {
+    type: 'response_item',
+    payload: { role: 'user', content: [{ type: 'input_text', text: '请只阅读当前目录下的审阅包文件，输出 JSON' }] },
+  };
+  assert.equal(userPromptOf(real), '请只阅读当前目录下的审阅包文件，输出 JSON');
+  assert.equal(userPromptOf({ type: 'event_msg', payload: { type: 'user_message', message: '查一下流水线' } }), '查一下流水线');
+  assert.equal(userPromptOf(null), '');
+  assert.equal(userPromptOf({ type: 'response_item', payload: { role: 'assistant', content: [] } }), '');
+});
+
+test('shortPrompt flattens whitespace and caps the label length', () => {
+  assert.equal(shortPrompt('  多个\n空格\t和换行  '), '多个 空格 和换行');
+  assert.equal(shortPrompt(''), '');
+  const long = shortPrompt('一'.repeat(80), 10);
+  assert.equal(long.length, 10);
+  assert.ok(long.endsWith('…'));
+});
+
+test('firstUserPrompt + promptTitleOf read a real rollout file', async () => {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join: joinPath } = await import('node:path');
+  const dir = await mkdtemp(joinPath(tmpdir(), 'agent-tree-title-'));
+  const path = joinPath(dir, 'rollout-test.jsonl');
+  const lines = [
+    metaLine({ ...rootPayload, id: 'root-9' }),
+    JSON.stringify({
+      type: 'response_item',
+      payload: { role: 'user', content: [{ type: 'input_text', text: '<environment_context>\n<cwd>/x</cwd>' }] },
+    }),
+    JSON.stringify({ type: 'response_item', payload: { role: 'user', content: [{ type: 'input_text', text: '把 backlog 里能推进的任务推进一下' }] } }),
+  ];
+  await writeFile(path, `${lines.join('\n')}\n`, 'utf8');
+  assert.equal(await firstUserPrompt(path), '把 backlog 里能推进的任务推进一下');
+  assert.equal(await promptTitleOf({ path, mtime: 1 }), '把 backlog 里能推进的任务推进一下');
+  assert.equal(await promptTitleOf({ path: joinPath(dir, 'missing.jsonl'), mtime: 1 }), '');
+  assert.equal(await firstUserPrompt(null), '');
+});
+
+test('pickCodexRoot can hand out distinct sessions to processes sharing one cwd', () => {
+  const now = Date.now();
+  const metas = [
+    { ...parseRolloutMeta(metaLine({ ...rootPayload, id: 'a' })), mtime: now - 1000 },
+    { ...parseRolloutMeta(metaLine({ ...rootPayload, id: 'b' })), mtime: now - 5000 },
+    { ...parseRolloutMeta(metaLine({ ...rootPayload, id: 'c' })), mtime: now - 9000 },
+  ];
+  const claimed = new Set();
+  const first = pickCodexRoot(metas, '/work/devline', { exclude: claimed });
+  claimed.add(first.id);
+  const second = pickCodexRoot(metas, '/work/devline', { exclude: claimed });
+  claimed.add(second.id);
+  const third = pickCodexRoot(metas, '/work/devline', { exclude: claimed });
+  claimed.add(third.id);
+  assert.deepEqual([first.id, second.id, third.id], ['a', 'b', 'c'], '同 cwd 的三个进程各认领一条会话，不会三行同名');
+  assert.equal(pickCodexRoot(metas, '/work/devline', { exclude: claimed }), undefined, '认领完了就不硬塞');
 });

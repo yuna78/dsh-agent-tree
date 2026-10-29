@@ -271,6 +271,88 @@ async function recentCodexMetas(now) {
   return metas;
 }
 
+/** 这些前缀是 codex 自己塞的上下文包裹，不算用户真正说的话。 */
+const PROMPT_SKIP =
+  /^\s*(<(environment_context|app-context|user_instructions|user-instructions|system|developer)|#\s*AGENTS\.md|<INSTRUCTIONS)/i;
+
+/** 从一行 rollout 事件里取「用户真正说的那句话」，取不到返回空串。 */
+export function userPromptOf(event) {
+  if (event === null || typeof event !== 'object') return '';
+  const payload = event.payload !== null && typeof event.payload === 'object' ? event.payload : {};
+  if (event.type === 'response_item' && payload.role === 'user') {
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    for (const item of content) {
+      const text = item !== null && typeof item === 'object' && typeof item.text === 'string' ? item.text : '';
+      if (text !== '' && !PROMPT_SKIP.test(text)) return text;
+    }
+    return '';
+  }
+  if (event.type === 'event_msg' && payload.type === 'user_message' && typeof payload.message === 'string') {
+    return PROMPT_SKIP.test(payload.message) ? '' : payload.message;
+  }
+  return '';
+}
+
+/** 压成一行、截短，用来当行标题。 */
+export function shortPrompt(text, limit = 36) {
+  const flat = String(text || '').replace(/\s+/g, ' ').trim();
+  if (flat === '') return '';
+  return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
+}
+
+/** 读 rollout 里第一条用户消息（最多读 2MB），拿不到就空串。 */
+export async function firstUserPrompt(path) {
+  let handle;
+  try {
+    handle = await open(path, 'r');
+  } catch (err) {
+    return '';
+  }
+  try {
+    let buffer = '';
+    const chunk = Buffer.allocUnsafe(65536);
+    let total = 0;
+    while (total < 2 * 1024 * 1024) {
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, total);
+      if (bytesRead <= 0) break;
+      total += bytesRead;
+      buffer += chunk.subarray(0, bytesRead).toString('utf8');
+      let newline = buffer.indexOf('\n');
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        newline = buffer.indexOf('\n');
+        if (line.trim() === '') continue;
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch (err) {
+          continue;
+        }
+        const prompt = userPromptOf(event);
+        if (prompt !== '') return prompt;
+      }
+    }
+    return '';
+  } catch (err) {
+    return '';
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+const titleCache = new Map();
+
+/** 某条 rollout 的会话标题（首条用户消息，截短；按 path+mtime 缓存）。 */
+export async function promptTitleOf(root) {
+  if (root === undefined || typeof root.path !== 'string') return '';
+  const hit = titleCache.get(root.path);
+  if (hit !== undefined && hit.mtime === root.mtime) return hit.title;
+  const title = shortPrompt(await firstUserPrompt(root.path));
+  titleCache.set(root.path, { mtime: root.mtime, title });
+  return title;
+}
+
 /** 导出给自检/排查用：本机最近 rollout 的 meta 列表。 */
 export async function collectCodexMetas(now = Date.now()) {
   return await recentCodexMetas(now);
@@ -318,7 +400,8 @@ export function codexThreadsUnder(metas, rootId, now) {
  */
 export function pickCodexRoot(metas, cwd, options = {}) {
   if (!Array.isArray(metas)) return undefined;
-  const roots = metas.filter((meta) => meta && !meta.isSubagent);
+  const exclude = options !== null && typeof options === 'object' && options.exclude instanceof Set ? options.exclude : null;
+  const roots = metas.filter((meta) => meta && !meta.isSubagent && (exclude === null || !exclude.has(meta.id)));
   if (roots.length === 0) return undefined;
   const sorted = roots.slice().sort((a, b) => b.mtime - a.mtime);
   if (typeof cwd === 'string' && cwd !== '' && cwd !== '/') {
@@ -358,20 +441,27 @@ async function snapshot() {
   const rows = buildProcessRoots(parseProcessTable(table));
   const codexMetas = rows.some((row) => row.kind === 'codex') ? await recentCodexMetas(now) : [];
   const processes = [];
+  const claimedRoots = new Set();
   for (const row of rows) {
     let cwd = await cwdOf(row.pid);
     if (cwd === '' || cwd === '/') cwd = argCwd(row.command) || cwd;
     const root =
       row.kind === 'codex'
-        ? pickCodexRoot(codexMetas, cwd, { preferDesktop: /ChatGPT\.app|CodexCLI\.app|Codex\.app/i.test(row.command) })
+        ? pickCodexRoot(codexMetas, cwd, {
+            preferDesktop: /ChatGPT\.app|CodexCLI\.app|Codex\.app/i.test(row.command),
+            exclude: claimedRoots,
+          })
         : undefined;
+    if (root !== undefined) claimedRoots.add(root.id);
+    const title = root === undefined ? '' : await promptTitleOf(root);
     processes.push({
       pid: row.pid,
       kind: row.kind,
       elapsedSeconds: row.elapsedSeconds,
       cpu: row.cpu,
       cwd,
-      label: displayLabel(row.command, cwd),
+      label: title !== '' ? title : displayLabel(row.command, cwd),
+      sessionTitle: title,
       children: row.children,
       threads: root === undefined ? [] : codexThreadsUnder(codexMetas, root.id, now),
     });

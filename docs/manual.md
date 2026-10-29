@@ -152,6 +152,18 @@ codex（CLI 和 ChatGPT 桌面端）每开一个会话都会写一条 rollout：
   ChatGPT 桌面端进程 cwd 常常是 `/`，这时优先挑 `originator` 带 `Desktop` 的会话。
 - 最多 8 个子对话、最深 3 层。只读本机、不联网、不外发。
 
+### 6.3 codex 那行的名字
+
+行名不是目录名，而是**这条 codex 会话的第一句真实需求**（跳过 codex 自己塞的 `environment_context`、
+`AGENTS.md instructions` 这类上下文），后面跟一个灰色的目录小标签：
+
+```
+▾ ● codex 推进一下能推进的任务，看看流水线…   devline   69h35m 2%
+```
+
+- 取不到（rollout 刚建、还没写用户消息）才回落到目录名 / `ChatGPT`。
+- 同一 cwd 下有多个 codex 进程时，按时间各认领一条会话，所以不会出现两行同名。
+
 ## 7. 交互
 
 | 操作 | 效果 |
