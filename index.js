@@ -360,6 +360,76 @@ export async function promptTitleOf(root) {
   return title;
 }
 
+/**
+ * 本机上其它 dsh web 实例：端口 + 它在用的会话。
+ *
+ * 同一台机器经常同时开好几个 `dsh web --port 30xx`。浏览器这一侧只能看到自己连着的那个实例，
+ * 但进程表是共享的：
+ *   - `ps` 找 `dsh ... web` 进程（排除自己）；
+ *   - `lsof -a -p <pid> -iTCP -sTCP:LISTEN` 拿它监听的端口（3080 那个还会多一个 3081）；
+ *   - `lsof -p <pid> -Fn` 里 `~/.dsh/sessions/<项目>/session-<id>/...` 就是它当前打开着的会话。
+ *
+ * 只读本机，不请求别的实例的接口，所以不需要它们的鉴权。
+ */
+export async function dshInstances(selfPid = process.pid) {
+  const table = await run('ps', ['-axo', 'pid=,command='], PS_TIMEOUT_MS).catch(() => '');
+  const candidates = [];
+  for (const line of String(table).split('\n')) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (match === null) continue;
+    const pid = Number(match[1]);
+    const command = match[2];
+    if (pid === selfPid) continue;
+    if (!/dsh\/lib\/bin\.js|\bdsh\b/.test(command)) continue;
+    if (!/\bweb\b|--port/.test(command)) continue;
+    candidates.push({ pid, command });
+    if (candidates.length >= MAX_INSTANCES) break;
+  }
+
+  const instances = [];
+  for (const candidate of candidates) {
+    const ports = await instancePorts(candidate.pid);
+    const sessionIds = await instanceSessions(candidate.pid);
+    if (ports.length === 0 && sessionIds.length === 0) continue;
+    instances.push({ pid: candidate.pid, ports, sessionIds, label: instanceLabel(candidate.command, ports) });
+  }
+  return instances;
+}
+
+const MAX_INSTANCES = 4;
+const MAX_INSTANCE_SESSIONS = 12;
+
+async function instancePorts(pid) {
+  const output = await run('lsof', ['-nP', '-a', '-p', String(pid), '-iTCP', '-sTCP:LISTEN'], LSOF_TIMEOUT_MS).catch(
+    () => '',
+  );
+  const ports = new Set();
+  for (const line of String(output).split('\n').slice(1)) {
+    const match = /:(\d+)\s*\(LISTEN\)/.exec(line);
+    if (match !== null) ports.add(Number(match[1]));
+  }
+  return [...ports].sort((left, right) => left - right);
+}
+
+async function instanceSessions(pid) {
+  const output = await run('lsof', ['-nP', '-p', String(pid), '-Fn'], LSOF_TIMEOUT_MS).catch(() => '');
+  const ids = new Set();
+  for (const line of String(output).split('\n')) {
+    if (!line.startsWith('n')) continue;
+    const match = /\/sessions\/[^/]+\/session-([0-9a-f-]{36})\//.exec(line);
+    if (match !== null) ids.add(match[1]);
+    if (ids.size >= MAX_INSTANCE_SESSIONS) break;
+  }
+  return [...ids];
+}
+
+/** 行的名字：有端口就 `dsh :3083`，识别不到端口就 pid。 */
+function instanceLabel(command, ports) {
+  if (ports.length > 0) return `dsh :${ports[0]}`;
+  const pid = /^\s*(\d+)/.exec(command);
+  return pid === null ? 'dsh' : `dsh pid ${pid[1]}`;
+}
+
 /** 导出给自检/排查用：本机最近 rollout 的 meta 列表。 */
 export async function collectCodexMetas(now = Date.now()) {
   return await recentCodexMetas(now);
@@ -473,7 +543,8 @@ async function snapshot() {
       threads: root === undefined ? [] : codexThreadsUnder(codexMetas, root.id, now),
     });
   }
-  const payload = { at: now, processes };
+  const instances = await dshInstances().catch(() => []);
+  const payload = { at: now, processes, instances };
   cache = { at: now, payload };
   return payload;
 }

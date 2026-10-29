@@ -627,3 +627,36 @@ test('scheduleMark keeps an alarm clock on loop sessions and shows the countdown
   assert.equal(scheduleMark(undefined, now), null);
   assert.equal(scheduleMark(null, now), null);
 });
+
+test('buildInstances 把其它 dsh 实例的端口和会话拼成可渲染节点', () => {
+  const { buildInstances } = clientModule.__test;
+  const now = Date.UTC(2026, 9, 29, 9, 30, 0);
+  const sessions = {
+    byId: {
+      a1: { id: 'a1', displayTitle: '另一个端口跑着的会话', updatedAt: now - 3 * 60000 },
+      a2: { id: 'a2', displayTitle: '空闲但挂着', updatedAt: now - 3600000 },
+    },
+  };
+  const statuses = new Map([['a2', { running: false, pendingInteraction: { kind: 'approval' } }]]);
+  const views = buildInstances(
+    [{ pid: 4242, ports: [3083, 3082], sessionIds: ['a1', 'a2', 'ghost'] }],
+    sessions,
+    statuses,
+    now,
+  );
+  assert.equal(views.length, 1);
+  const view = views[0];
+  assert.equal(view.label, 'dsh :3083');
+  assert.equal(view.url, 'http://127.0.0.1:3083/');
+  assert.equal(view.count, 2, '认不出的 session id 不进 count');
+  assert.equal(view.unknown, 1);
+  assert.equal(view.waiting, true);
+  assert.equal(view.rows[0].id, 'a1', '按最近更新排序');
+  assert.equal(view.rows[0].updatedLabel, '3m');
+  assert.equal(view.rows[1].waiting, 'approval');
+
+  assert.deepEqual(buildInstances([], sessions, statuses, now), []);
+  assert.deepEqual(buildInstances(null, null, null, now), []);
+  const noPort = buildInstances([{ pid: 9, ports: [], sessionIds: [] }], sessions, statuses, now);
+  assert.deepEqual(noPort, [], '没有端口也没有会话的实例不占行');
+});

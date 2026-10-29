@@ -106,6 +106,8 @@ const CLIENT_MARKERS = [
   ['/local/dsh-agent-tree/processes', '外部进程接口'],
   ['workspaces.list.getSnapshot', 'workspace 归属'],
   ['subagentAddress', '跳转地址'],
+  ['buildInstances', '本机其它 dsh 实例渲染'],
+  ['data.instances', '实例列表接口字段'],
 ];
 for (const [marker, label] of CLIENT_MARKERS) {
   if (!client.includes(marker)) fail(`client.js 少了${label}（${marker}）`);
@@ -126,6 +128,8 @@ const HOST_MARKERS = [
   ['parseRolloutMeta', 'codex rollout 解析'],
   ['codexThreadsUnder', 'codex 子对话树'],
   ['rollout-', 'codex 会话文件前缀'],
+  ['dshInstances', '本机 dsh 实例发现'],
+  ['-sTCP:LISTEN', '实例监听端口读取'],
 ];
 for (const [marker, label] of HOST_MARKERS) {
   if (!host.includes(marker)) fail(`index.js 少了${label}（${marker}）`);

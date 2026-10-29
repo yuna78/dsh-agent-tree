@@ -100,7 +100,27 @@ says it was inherited. So every row can answer "which model is this".
 DSH Automation tasks (`schedule.catalog()`) drive intermittent sessions: idle most of the time, they fire on a timer.
 Those sessions are listed even while idle, with `⏱` showing the next fire time — clicking jumps to them as usual.
 
-## 6. Local external agents (peers of dsh)
+## 6. Other local dsh instances
+
+One `~/.dsh` can serve several `dsh web --port 30xx` at once. The browser only sees the instance it is connected to,
+but the process table and the session store are shared, so the host half can read the others:
+
+- `ps` finds `dsh ... web` processes (excluding itself);
+- `lsof -a -p <pid> -iTCP -sTCP:LISTEN` gives their listening ports (`3080` usually also has `3081`);
+- `lsof -p <pid> -Fn` shows `~/.dsh/sessions/<project>/session-<id>/` — the sessions they currently have open.
+
+```
+▾ ● dsh :3083                     2 sessions
+├─ ● 推进 backlog 任务并设循环        1m
+└─ ● PMO                          6m
+```
+
+- Titles come from the shared session store, so they match what that instance shows; the right side is "last touched".
+- Click the instance row / a session row to open that port in a new tab (no deep link to the exact session).
+- Session ids missing from this instance's store (e.g. another `DSH_HOME`) are only counted in the tooltip.
+- At most 4 instances, 6 rows each.
+
+## 7. Local external agents (peers of dsh)
 
 Read-only probe from the host half, listing running `claude` / `codex` CLIs on this machine. They are
 **top-level nodes just like `dsh`** (same row spec: same font size, same dot, same collapse); only the dot
@@ -163,7 +183,7 @@ The row is named after **the first real request of that codex session** (skippin
 - Falls back to the directory name / `ChatGPT` only when the rollout has no user message yet.
 - With several codex processes in one cwd, each claims a distinct session by recency, so rows never share a name.
 
-## 7. Interaction
+## 8. Interaction
 
 | Action | Effect |
 |---|---|
@@ -172,7 +192,7 @@ The row is named after **the first real request of that codex session** (skippin
 | drag the header | move the card; position saved in `localStorage: dsh-agent-tree:pos` |
 | click headline `▾/▸` | collapse / expand the whole card |
 
-## 8. Refresh cadence
+## 9. Refresh cadence
 
 | Data | Cadence |
 |---|---|
@@ -181,7 +201,7 @@ The row is named after **the first real request of that codex session** (skippin
 | external processes | every 5s (host caches for 3s) |
 | countdown / duration | recomputed every second |
 
-## 9. Self-check line
+## 10. Self-check line
 
 `会话 N · 子代理 M · 运行中 K（live|poll）`
 
@@ -189,7 +209,7 @@ The row is named after **the first real request of that codex session** (skippin
 - `live` = official realtime events, `poll` = fallback. If it stays `poll`, this DSH build lacks the global status
   store — worth an issue.
 
-## 10. Known limits
+## 11. Known limits
 
 - Only the current Web instance's sessions are visible (not other profiles or machines).
 - Running state follows DSH status events; a finished subagent may linger for a second or two.

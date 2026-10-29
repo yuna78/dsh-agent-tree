@@ -222,6 +222,48 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 本机其它 dsh 实例：宿主半部用 `ps`+`lsof` 找到它们的端口和正在用的会话，
+     * 这里把会话 id 对回本地会话表（共用同一个 `~/.dsh/sessions`，所以标题能拿到）。
+     */
+    function buildInstances(instances, sessions, statuses, now) {
+      const list = Array.isArray(instances) ? instances : [];
+      const byId = sessions && sessions.byId ? sessions.byId : {};
+      const out = [];
+      for (const instance of list) {
+        if (instance === null || typeof instance !== 'object') continue;
+        const ports = Array.isArray(instance.ports) ? instance.ports.filter((port) => Number.isFinite(port)) : [];
+        const ids = Array.isArray(instance.sessionIds) ? instance.sessionIds : [];
+        const rows = [];
+        for (const id of ids) {
+          const row = byId[id];
+          if (row === undefined) continue;
+          rows.push({
+            id,
+            title: shortTitle(row),
+            waiting: waitingKind(statuses, id),
+            updatedAt: Number(row.updatedAt) || 0,
+            updatedLabel: formatElapsed(Math.max(0, Math.round((now - (Number(row.updatedAt) || now)) / 1000))),
+          });
+        }
+        rows.sort((left, right) => right.updatedAt - left.updatedAt);
+        if (ports.length === 0 && rows.length === 0) continue;
+        out.push({
+          key: `inst:${instance.pid}`,
+          pid: instance.pid,
+          port: ports.length > 0 ? ports[0] : undefined,
+          label: ports.length > 0 ? `dsh :${ports[0]}` : `dsh pid ${instance.pid}`,
+          url: ports.length > 0 ? `http://127.0.0.1:${ports[0]}/` : '',
+          waiting: rows.some((row) => row.waiting !== undefined),
+          count: rows.length,
+          unknown: ids.length - rows.length,
+          rows: rows.slice(0, 6),
+        });
+        if (out.length >= 4) break;
+      }
+      return out;
+    }
+
+    /**
      * 建真树：workspace → 对话 → subagent（可递归）。
      * 只保留通往「活跃 / 有定时任务」节点的分支，所以卡永远小。
      *
@@ -540,7 +582,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function MiniInner({ tree, onOpen, mode, processes }) {
+    function MiniInner({ tree, onOpen, mode, processes, instances, sessions, statuses }) {
       const [manualCollapsed, setManualCollapsed] = React.useState(null);
       const collapsed =
         manualCollapsed === null ? tree.running === 0 && tree.scheduled === 0 && tree.waiting === 0 : manualCollapsed;
@@ -809,6 +851,96 @@ window.__ModuleLoader__.load({
           ),
         );
         if (groupOpen) renderNodes(group.items, groupPrefix, 1, rows, '');
+      });
+
+      // 本机其它 dsh 实例：端口 + 它们在用的会话（宿主半部用 ps/lsof 发现，不需要跨端口鉴权）。
+      const instanceViews = buildInstances(instances, sessions, statuses, now);
+      instanceViews.forEach((instance) => {
+        const instKey = instance.key;
+        const instOpen = !collapsedNodes[instKey];
+        const openInstance = () => {
+          if (instance.url === '') return;
+          if (typeof window !== 'undefined' && typeof window.open === 'function') window.open(instance.url, '_blank', 'noopener');
+        };
+        rows.push(
+          h(
+            'div',
+            {
+              key: instKey,
+              className: 'dsh-agent-tree-mini-row',
+              onClick: () => {
+                toggle(instKey);
+                openInstance();
+              },
+              title: `${instance.label}${instance.port === undefined ? '' : `\n${instance.url}`}${
+                instance.unknown > 0 ? `\n另有 ${instance.unknown} 个会话不在本实例的会话表里` : ''
+              }`,
+              style: {
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '4px 8px 2px 10px',
+                cursor: 'pointer',
+                minWidth: 0,
+              },
+            },
+            instance.rows.length === 0 ? h('span', { style: { width: 8, flex: 'none' } }) : caret(instOpen),
+            h(Dot, {
+              color: instance.waiting ? WAIT.question.color : DOT.conversation,
+              active: instance.rows.length > 0 || instance.waiting,
+            }),
+            clampSpan(instance.label, {
+              flex: 'none',
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--dsw-alias-label-primary)',
+            }),
+            h('span', { style: { flex: 1 } }),
+            h(
+              'span',
+              { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
+              `${instance.count} 个会话`,
+            ),
+          ),
+        );
+        if (!instOpen) return;
+        instance.rows.forEach((row, rowIndex) => {
+          const isLast = rowIndex === instance.rows.length - 1;
+          rows.push(
+            h(
+              'div',
+              {
+                key: `${instKey}:${row.id}`,
+                className: 'dsh-agent-tree-mini-row',
+                onClick: openInstance,
+                title: `${row.title}\n${instance.label}\n${row.id}`,
+                style: {
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '2px 8px 2px 12px',
+                  cursor: 'pointer',
+                  minWidth: 0,
+                },
+              },
+              glyph(isLast ? '└─' : '├─'),
+              h(Dot, {
+                color: row.waiting ? WAIT[row.waiting].color : DOT.level2,
+                active: row.waiting !== undefined,
+              }),
+              clampSpan(row.title, {
+                fontSize: 10.5,
+                color: row.waiting ? WAIT[row.waiting].color : 'var(--dsw-alias-label-secondary)',
+              }),
+              row.waiting ? h(WaitBadge, { kind: row.waiting }) : null,
+              h(
+                'span',
+                { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
+                row.updatedLabel,
+              ),
+            ),
+          );
+        });
       });
 
       // 外部 claude / codex：和 dsh 同级的顶层节点（不缩进），子进程挂在它们下面。
@@ -1164,6 +1296,7 @@ window.__ModuleLoader__.load({
     /** 本机 claude / codex 进程：走插件自己的宿主接口，拿不到就当没有。 */
     function useExternalProcesses() {
       const [processes, setProcesses] = React.useState([]);
+      const [instances, setInstances] = React.useState(() => []);
       React.useEffect(() => {
         let alive = true;
         const read = async () => {
@@ -1174,7 +1307,9 @@ window.__ModuleLoader__.load({
               return;
             }
             const data = await response.json();
-            if (alive && data && Array.isArray(data.processes)) setProcesses(data.processes);
+            if (!alive || data === null || typeof data !== 'object') return;
+            if (Array.isArray(data.processes)) setProcesses(data.processes);
+            setInstances(Array.isArray(data.instances) ? data.instances : []);
           } catch (err) {
             if (alive) setProcesses([]);
           }
@@ -1186,7 +1321,7 @@ window.__ModuleLoader__.load({
           clearInterval(timer);
         };
       }, []);
-      return processes;
+      return { processes, instances };
     }
 
     function MiniLive(props) {
@@ -1194,9 +1329,17 @@ window.__ModuleLoader__.load({
       const statuses = props.useSessionStatus((value) => value);
       const workspaces = useWorkspaceSnapshot();
       const schedules = useScheduleCatalog();
-      const processes = useExternalProcesses();
+      const external = useExternalProcesses();
       const tree = selectActiveTree(sessions, workspaces, statuses, schedules);
-      return h(MiniInner, { tree, onOpen: props.open, mode: 'live', processes });
+      return h(MiniInner, {
+        tree,
+        onOpen: props.open,
+        mode: 'live',
+        processes: external.processes,
+        instances: external.instances,
+        sessions,
+        statuses,
+      });
     }
 
     /** 没有 global props 时：轮询快照 + 自己订阅状态流。 */
@@ -1205,7 +1348,7 @@ window.__ModuleLoader__.load({
       const [statuses, setStatuses] = React.useState(() => new Map());
       const workspaces = useWorkspaceSnapshot();
       const schedules = useScheduleCatalog();
-      const processes = useExternalProcesses();
+      const external = useExternalProcesses();
 
       React.useEffect(() => {
         const read = () => {
@@ -1237,7 +1380,15 @@ window.__ModuleLoader__.load({
 
       if (sessions === null) return null;
       const tree = selectActiveTree(sessions, workspaces, statuses, schedules);
-      return h(MiniInner, { tree, onOpen: open, mode: 'poll', processes });
+      return h(MiniInner, {
+        tree,
+        onOpen: open,
+        mode: 'poll',
+        processes: external.processes,
+        instances: external.instances,
+        sessions,
+        statuses,
+      });
     }
 
     function Mini(props) {
@@ -1272,6 +1423,7 @@ window.__ModuleLoader__.load({
       // 仅供本地单测使用。
       __test: {
         selectActiveTree,
+        buildInstances,
         MiniInner,
         durationMs,
         formatDuration,
