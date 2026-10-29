@@ -1,14 +1,6 @@
 # Changelog
 
-## 未发布
-
-- **「等你拍板」的会话不再消失**：读实时状态里的 `pendingInteraction`（`question` / `approval` / `plan-review`），这类会话即使没在跑也会列出，琥珀色圆点 + `待答 / 待批 / 待审` 徽标，排在在跑的前面；标题栏变成「N 个等你处理 · M 个在跑 · K 个定时」。
-- **定时任务显示修复**：`remote.schedule` 是别的客户端插件挂上来的命名空间服务，只读 `ctx.remote.schedule` 在它还没挂上时会拿到 undefined，导致定时任务整段消失；现在用 `ctx.get('remote.schedule')` 兜底并继续轮询。
-- **codex 行名改成会话标题**：从 rollout 里取第一条真实用户消息（跳过 `environment_context` / `AGENTS.md` 注入）当行名，取不到才回落目录名；右侧加灰色目录小标签；同 cwd 的多个 codex 进程按时间各认领一条会话，避免多行同名。
-- **codex 的子对话**：读 `~/.codex/sessions/**/rollout-*.jsonl` 的 `session_meta`，按 `parent_thread_id` 还原 subagent 线程树，挂在 codex 行下面（昵称 + agent 路径 + 最后活动时间 / `running`）；按 cwd、cwd 前缀、桌面端 originator 三级匹配主线程。
-- 顶层改成「本机 agent 列表」：`dsh` 与 `claude` / `codex` 同级，各自展开自己的子树；行规格统一。
-
-## 0.1.0 — 2026-10-28
+## 0.1.0 — 2026-10-29
 
 首个公开版本。从「一个会话里翻着看 subagent 太累」长出来的一张小卡片。
 
@@ -22,6 +14,11 @@
 - **外部 agent 进程（带子树）**：宿主半部只读接口 `GET /local/dsh-agent-tree/processes`，用 `ps` + `lsof` 发现本机正在跑的 `claude` / `codex` CLI，并按 `ppid` 把它们的子进程挂成子树（同类子进程归组成 `computer use ×4` / `MCP ×3` 这样的行）。它们和 `dsh` 是**同级的顶层 agent 节点**（本机 agent 列表），用同一套行规格，可折叠。
 - **点击跳转**：点任意一行 → `subagentAddress` + `uiWorkspace.openSession` 跳到对应会话（含 subagent）。
 - **拖动与记忆**：拖标题栏移动，位置存 `localStorage`。
+- **「等你拍板」的会话不再消失**：读实时状态里的 `pendingInteraction`（`question` / `approval` / `plan-review`），这类会话即使没在跑也会列出，琥珀色圆点 + `待答 / 待批 / 待审` 徽标，排在在跑的前面；标题栏变成「N 个等你处理 · M 个在跑 · K 个定时」。
+- **定时任务显示修复**：`remote.schedule` 是别的客户端插件挂上来的命名空间服务，只读 `ctx.remote.schedule` 在它还没挂上时会拿到 undefined，导致定时任务整段消失；现在用 `ctx.get('remote.schedule')` 兜底并继续轮询。
+- **codex 行名改成会话标题**：从 rollout 里取第一条真实用户消息（跳过 `environment_context` / `AGENTS.md` 注入）当行名，取不到才回落目录名；右侧加灰色目录小标签；同 cwd 的多个 codex 进程按时间各认领一条会话，避免多行同名。
+- **codex 的子对话**：读 `~/.codex/sessions/**/rollout-*.jsonl` 的 `session_meta`，按 `parent_thread_id` 还原 subagent 线程树，挂在 codex 行下面（昵称 + agent 路径 + 最后活动时间 / `running`）；按 cwd、cwd 前缀、桌面端 originator 三级匹配主线程。
+- 顶层改成「本机 agent 列表」：`dsh` 与 `claude` / `codex` 同级，各自展开自己的子树；行规格统一。
 
 ### 健壮性
 
