@@ -3,22 +3,27 @@
 简体中文 · [English](manual.en.md)
 
 ```
-┌──────────────────────────────────────────────┐
-│ ● 5 个 agent 在跑 · 2 个定时              ▾  │ ← 头部：统计 + 折叠
-├──────────────────────────────────────────────┤
-│ ▾ proj-alpha                              2  │ ← workspace 分组
-│ ├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro │ ← 顶层对话（绿点）
-│ │  ├─ ● Explore repo structure      1m5s    │ ← subagent（蓝点）
-│ │  │  └─ ● Run unit tests              9s    │ ← 孙代理（紫点）
-│ │  └─ ● Write migration plan          31s    │
-│ └─   Fix flaky login test      ⏱2h  v4.1-flash│ ← 有定时、当前空闲
-│ ▾ my-repo                                 1  │
-│ └─ ● Triage CI failures        v4.1-pro      │
-│ ──────────────────────────────────────────── │
-│ ├─ ● claude  proj-alpha              12m 3%  │ ← 本机外部进程
-│ └─ ● codex   my-repo                   3m    │
-│ 会话 6 · 子代理 3 · 运行中 5（live）         │ ← 自检行
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│ ● 5 个 agent 在跑 · 2 个定时                  ▾  │ ← 头部：统计 + 折叠
+├──────────────────────────────────────────────────┤
+│ ▾ dsh                            2 个 workspace  │ ← 根节点（这个 DSH 实例）
+│ ├─ ▾ proj-alpha                              2  │ ← workspace
+│ │  ├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro  │ ← 对话（绿点）
+│ │  │  ├─ ● Explore repo structure      1m5s     │ ← subagent（蓝点）
+│ │  │  │  └─ ● Run unit tests              9s     │ ← 孙代理（紫点）
+│ │  │  └─ ● Write migration plan          31s     │
+│ │  └─   Fix flaky login test      ⏱2h  v4.1-flash │ ← 有定时、当前空闲
+│ └─ ▾ my-repo                                 1  │
+│    └─ ● Triage CI failures        v4.1-pro       │
+│ ────────────────────────────────────────────────  │
+│ ├─ ▾ ● claude  proj-alpha              12m 3%    │ ← 本机外部进程
+│ │  └─ computer use ×2                    41m     │ ← 它的子进程（按种类归组）
+│ └─ ▾ ● codex   ChatGPT              69h35m 2%    │
+│    ├─ MCP ×2                             2h50m   │
+│    ├─ computer use ×2                     41m    │
+│    └─ code mode                           41m    │
+│ 会话 6 · 子代理 3 · 运行中 5（live）             │ ← 自检行
+└──────────────────────────────────────────────────┘
 ```
 
 ## 1. 头部
@@ -31,6 +36,20 @@
 | 右侧 `▾ / ▸` | 手动展开 / 收起；手动操作优先于自动折叠 |
 
 自动折叠规则：`running === 0 && scheduled === 0` 时收起；一旦有活儿自动展开（除非你手动收起了）。
+
+## 1.5 层级
+
+卡片是 4 层结构（子代理越深越多，最多到第 5 层）：
+
+```
+dsh（这个实例）
+└─ workspace
+   └─ 对话
+      └─ subagent
+         └─ 孙代理 …
+```
+
+根节点 `dsh` 可以点击收起，一次折叠掉所有 workspace；它右侧显示 workspace 数量。
 
 ## 2. 树行元素
 
@@ -80,6 +99,21 @@ DSH 的 Automation tasks（`schedule.catalog()`）驱动的是「间歇式工作
 - 只显示前 8 条；结果缓存 3 秒；接口需要登录态（未登录 401）。
 - 这一段的目的是「我在 DSH 里干活时，本机还有没有别的 agent 在偷偷跑」。
 
+## 6.5 外部进程也是树
+
+`claude` / `codex` 是根，它们的子进程按 `ppid` 挂成子树；同一种子进程会归组成一行：
+
+```
+├─ ▾ ● codex  ChatGPT        69h35m 2%
+│  ├─ MCP ×2                    2h50m
+│  ├─ computer use ×2             41m
+│  └─ code mode                   41m
+```
+
+- `×N` 表示有几个同类子进程，右侧显示其中跑得最久的时长；
+- 点进程根行可以折叠它的子树；
+- 子孙里如果又是一个真正的 agent CLI，会单独作为根出现，不重复挂。
+
 ## 7. 交互
 
 | 操作 | 效果 |
@@ -111,5 +145,5 @@ DSH 的 Automation tasks（`schedule.catalog()`）驱动的是「间歇式工作
 
 - 只显示**当前 Web 实例**的会话（别的 profile / 别的机器看不到）。
 - 运行状态以 DSH 的状态事件为准；如果某个子代理在 DSH 里已经结束、但事件还没到，可能短暂多显示一两秒。
-- 卡宽固定 272px，超长标题会省略；想加宽改 `client.js` 顶部的 `WIDTH`。
+- 卡宽固定 288px，超长标题会省略；想加宽改 `client.js` 顶部的 `WIDTH`。
 - UI 文案暂时是中文。

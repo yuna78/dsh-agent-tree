@@ -20,14 +20,14 @@
  *   - `GET /local/dsh-agent-tree/processes`（本插件宿主半部）→ 外部 agent 进程
  */
 window.__ModuleLoader__.load({
-  id: '@local/dsh-agent-tree',
+  id: 'dsh-plugin-agent-tree',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
 
     const OVERLAY_ID = 'dsh-agent-tree.mini';
     const POS_KEY = 'dsh-agent-tree:pos';
-    const WIDTH = 272;
+    const WIDTH = 288;
     const MAX_ROWS = 48;
     const POLL_MS = 1000;
     const STATUS_EVENT = 'api-session/status';
@@ -50,6 +50,25 @@ window.__ModuleLoader__.load({
 
     function hasSchedule(node) {
       return node && node.schedule !== undefined && node.schedule !== null;
+    }
+
+    /** 子孙进程按标签归组：`computer use ×4`、`MCP ×3`，按数量再按时长排序。 */
+    function groupProcessChildren(children) {
+      const groups = new Map();
+      for (const child of Array.isArray(children) ? children : []) {
+        const label = (child && child.label) || 'child';
+        let entry = groups.get(label);
+        if (!entry) {
+          entry = { label, count: 0, elapsedSeconds: 0, cpu: 0 };
+          groups.set(label, entry);
+        }
+        entry.count += 1;
+        entry.elapsedSeconds = Math.max(entry.elapsedSeconds, Number(child.elapsedSeconds) || 0);
+        entry.cpu += Number(child.cpu) || 0;
+      }
+      return Array.from(groups.values()).sort(
+        (a, b) => b.count - a.count || b.elapsedSeconds - a.elapsedSeconds,
+      );
     }
 
     function sortNodes(nodes) {
@@ -323,7 +342,7 @@ window.__ModuleLoader__.load({
       const tagId = OVERLAY_ID + '/styles';
       if (document.querySelector('style[data-plugin-css=' + JSON.stringify(tagId) + ']')) return;
       const tag = document.createElement('style');
-      tag.dataset.plugin = '@local/dsh-agent-tree';
+      tag.dataset.plugin = 'dsh-plugin-agent-tree';
       tag.dataset.pluginCss = tagId;
       tag.textContent = [
         '@keyframes dshAgentTreePulse{0%,100%{opacity:.3}50%{opacity:1}}',
@@ -542,7 +561,7 @@ window.__ModuleLoader__.load({
             return;
           }
 
-          const color = depth <= 1 ? DOT.level2 : DOT.deep;
+          const color = depth <= 2 ? DOT.level2 : DOT.deep;
           out.push(
             h(
               'div',
@@ -580,7 +599,54 @@ window.__ModuleLoader__.load({
       };
 
       const rows = [];
-      for (const group of tree.groups) {
+
+      // 根节点：dsh 实例（这样层级是 dsh → workspace → 对话 → subagent，4 层）
+      const rootKey = 'root';
+      const rootOpen = !collapsedNodes[rootKey];
+      rows.push(
+        h(
+          'div',
+          {
+            key: rootKey,
+            className: 'dsh-agent-tree-mini-row',
+            onClick: () => toggle(rootKey),
+            title: '这个 DSH 实例',
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '4px 8px 2px 10px',
+              cursor: 'pointer',
+              minWidth: 0,
+            },
+          },
+          h(
+            'span',
+            {
+              style: {
+                width: 8,
+                flex: 'none',
+                fontSize: 8.5,
+                color: 'var(--dsw-alias-label-tertiary)',
+                textAlign: 'center',
+              },
+            },
+            rootOpen ? '▾' : '▸',
+          ),
+          clampSpan('dsh', { flex: 'none', fontSize: 11, fontWeight: 700, color: 'var(--dsw-alias-label-primary)' }),
+          h('span', { style: { flex: 1 } }),
+          h(
+            'span',
+            { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
+            `${tree.groups.length} 个 workspace`,
+          ),
+        ),
+      );
+
+      if (rootOpen) tree.groups.forEach((group, groupIndex) => {
+        const isLastGroup = groupIndex === tree.groups.length - 1;
+        const groupConnector = isLastGroup ? '└─' : '├─';
+        const groupPrefix = isLastGroup ? '   ' : '│  ';
         const groupKey = `g:${group.id}`;
         const groupOpen = !collapsedNodes[groupKey];
         rows.push(
@@ -595,14 +661,19 @@ window.__ModuleLoader__.load({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
-                padding: '4px 8px 2px 10px',
+                padding: '4px 8px 2px 12px',
                 cursor: 'pointer',
                 minWidth: 0,
               },
             },
+            glyph(groupConnector),
             h(
               'span',
               {
+                onClick: (event) => {
+                  event.stopPropagation();
+                  toggle(groupKey);
+                },
                 style: {
                   width: 8,
                   flex: 'none',
@@ -621,8 +692,8 @@ window.__ModuleLoader__.load({
             ),
           ),
         );
-        if (groupOpen) renderNodes(group.items, '', 0, rows, '');
-      }
+        if (groupOpen) renderNodes(group.items, groupPrefix, 1, rows, '');
+      });
 
       if (Array.isArray(processes) && processes.length > 0) {
         rows.push(
@@ -634,23 +705,49 @@ window.__ModuleLoader__.load({
             },
           }),
         );
-        for (const proc of processes) {
+        processes.forEach((proc, procIndex) => {
+          const isLastProc = procIndex === processes.length - 1;
+          const procConnector = isLastProc ? '└─' : '├─';
+          const procPrefix = isLastProc ? '   ' : '│  ';
+          const procKey = `proc:${proc.pid}`;
+          const children = Array.isArray(proc.children) ? proc.children : [];
+          const expanded = !collapsedNodes[procKey];
           rows.push(
             h(
               'div',
               {
-                key: `proc:${proc.pid}`,
+                key: procKey,
                 className: 'dsh-agent-tree-mini-row',
-                title: `${proc.kind} · pid ${proc.pid}\n${proc.cwd || ''}`,
+                onClick: () => {
+                  if (children.length === 0) return;
+                  toggle(procKey);
+                },
+                title: `${proc.kind} · pid ${proc.pid}\n${proc.cwd || ''}${
+                  children.length > 0 ? `\n${children.length} 个子进程` : ''
+                }`,
                 style: {
                   display: 'flex',
                   alignItems: 'center',
                   gap: 4,
-                  padding: '2px 8px 2px 16px',
+                  padding: '2px 8px 2px 12px',
+                  cursor: children.length > 0 ? 'pointer' : 'default',
                   minWidth: 0,
                 },
               },
-              glyph('├─'),
+              glyph(procConnector),
+              h(
+                'span',
+                {
+                  style: {
+                    width: 8,
+                    flex: 'none',
+                    fontSize: 8.5,
+                    color: 'var(--dsw-alias-label-tertiary)',
+                    textAlign: 'center',
+                  },
+                },
+                children.length === 0 ? '' : expanded ? '▾' : '▸',
+              ),
               h(Dot, { color: KIND_DOT[proc.kind] || DOT.deep, active: true }),
               clampSpan(proc.kind, { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' }),
               clampSpan(proc.label || `pid ${proc.pid}`, {
@@ -664,7 +761,38 @@ window.__ModuleLoader__.load({
               ),
             ),
           );
-        }
+          if (!expanded || children.length === 0) return;
+          const childGroups = groupProcessChildren(children);
+          childGroups.forEach((child, childIndex) => {
+            const isLastChild = childIndex === childGroups.length - 1;
+            rows.push(
+              h(
+                'div',
+                {
+                  key: `${procKey}:${child.label}`,
+                  title: child.count > 1 ? `${child.count} 个 ${child.label} 子进程` : child.label,
+                  style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '1px 8px 1px 12px',
+                    minWidth: 0,
+                  },
+                },
+                glyph(`${procPrefix}${isLastChild ? '└─' : '├─'}`),
+                clampSpan(child.count > 1 ? `${child.label} ×${child.count}` : child.label, {
+                  fontSize: 9,
+                  color: 'var(--dsw-alias-label-tertiary)',
+                }),
+                h(
+                  'span',
+                  { style: { flex: 'none', fontSize: 8.5, color: 'var(--dsw-alias-label-tertiary)', opacity: 0.8 } },
+                  formatElapsed(child.elapsedSeconds),
+                ),
+              ),
+            );
+          });
+        });
       }
 
       const visible = rows.slice(0, MAX_ROWS);
@@ -969,6 +1097,7 @@ window.__ModuleLoader__.load({
         workspaceLabel,
         isRunning,
         sortNodes,
+      groupProcessChildren,
         modelLabel,
         toScheduleMap,
         countdownLabel,

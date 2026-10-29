@@ -2,10 +2,10 @@
 
 [简体中文](README.md) · English
 
-![Agent Tree: a 272px floating card that draws workspaces, conversations and subagents as a real tree](docs/assets/screenshot.png)
+![Agent Tree: a 288px floating card that draws the dsh instance, workspaces, conversations and subagents as a real tree](docs/assets/screenshot.png)
 
-**Agent Tree** is a small observability plugin for the DeepSeek Harness (DSH) Web UI: a **272px wide floating card**
-in a corner that draws `workspace → conversation → subagent → grandchild` as a live tree with
+**Agent Tree** is a small observability plugin for the DeepSeek Harness (DSH) Web UI: a **288px wide floating card**
+in a corner that draws `dsh → workspace → conversation → subagent → grandchild` as a live tree with
 `git log --graph`-style connectors. Only branches that are **running or scheduled** are shown, so the card stays small;
 when nothing is happening it collapses to a one-line strip — and it never disappears.
 
@@ -15,12 +15,12 @@ at which depth, on which model, for how long, and when its next scheduled run fi
 
 ## Features
 
-- **Real tree with git-style connectors** — `├─ └─ │` indentation per depth, collapsible with `▾ / ▸`.
+- **Real tree with git-style connectors** — root `dsh` (this instance) → `workspace` → `conversation` → `subagent` → grandchild, with `├─ └─ │` indentation per depth and `▾ / ▸` collapse.
 - **Always-on entry** — idle collapses to `● Agent tree ▸`; work re-expands it; manual collapse wins.
 - **Color = depth** — green dot for top-level conversations, blue for level-2 subagents, violet for deeper ones, grey for finished rows.
 - **Per-row model chip** (right aligned) — from the session projection `modelSelection` (`next` → `lastUsed`), shortened to `v4.1-flash`; subagents without their own record inherit the parent's (tooltip says so).
 - **Scheduled-task countdown** — reads `schedule.catalog()` from Automation tasks; sessions driven by a schedule are listed even while idle, with `⏱8m / ⏱2h / ⏱3d` and a `N running · M scheduled` headline.
-- **Local external agent processes** — the plugin's host half exposes a read-only endpoint that finds running **claude / codex CLIs** via `ps` + `lsof`, shown in a separate block at the bottom (kind / project dir / elapsed / CPU). ChatGPT desktop's `Codex Framework` helper processes are filtered out.
+- **Local external agent processes, also as a tree** — the plugin's host half exposes a read-only endpoint that finds running **claude / codex CLIs** via `ps` + `lsof` and nests their children by `ppid` (e.g. codex's `computer use ×4` / `MCP ×3` / `code mode`), in a collapsible block at the bottom. ChatGPT desktop's `Codex Framework` helpers are not mistaken for CLIs themselves.
 - **Click to jump** — `subagentAddress()` + `uiWorkspace.openSession()`, including subagents.
 - **Draggable, remembers its position** — stored in `localStorage`.
 
@@ -57,7 +57,8 @@ dsh plugin --profile web add "$PWD"
 | What you see | Meaning |
 |---|---|
 | `● 5 个 agent 在跑 · 2 个定时` | 5 sessions/subagents are running; 2 more are schedule-driven (may be idle right now) |
-| `▾ proj-alpha  2` | workspace group, count on the right |
+| `▾ dsh  2 个 workspace` | root node: this DSH instance, workspace count on the right |
+| `├─ ▾ proj-alpha  2` | workspace group, count on the right |
 | `├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro` | top-level conversation running (green), next scheduled run in 8 min, on v4.1-pro |
 | `│  ├─ ● Explore repo structure  v4.1-flash  1m5s` | its subagent (blue), running for 1m05s |
 | `│  │  └─ ● Run unit tests  v4.1-flash  9s` | grandchild agent (violet) |

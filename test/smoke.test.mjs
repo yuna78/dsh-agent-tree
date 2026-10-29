@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProcessTable, detectAgent, argCwd } from '../index.js';
+import { parseProcessTable, detectAgent, argCwd, buildProcessRoots, childLabel } from '../index.js';
 
 /**
  * 在 Node 里模拟浏览器模块加载器：拿到 client.js 的 factory，喂一个假的
@@ -83,7 +83,7 @@ await import('../client.js');
 
 test('client bundle loads and exposes apply/inject', () => {
   assert.ok(clientModule, 'module should be registered on window.__ModuleLoader__');
-  assert.equal(clientModule.id, '@local/dsh-agent-tree');
+  assert.equal(clientModule.id, 'dsh-plugin-agent-tree');
   assert.equal(typeof clientModule.apply, 'function');
   assert.deepEqual(clientModule.inject, ['sessions', 'slots', 'workspaces', 'remote', 'uiWorkspace']);
 });
@@ -278,19 +278,66 @@ test('host detectAgent ignores GUI helpers and picks real CLIs', () => {
   assert.equal(argCwd('claude'), '');
 });
 
-test('host parseProcessTable picks claude/codex only', () => {
+test('host parseProcessTable keeps ppid and marks agents only by kind', () => {
   const table = [
-    '  101  01:23  3.5 node /usr/local/bin/claude --resume',
-    '  102  2-03:00:00  0.1 /opt/bin/codex exec "do it"',
-    '  103  00:10  1.0 node /Users/x/dsh-agent-tree/index.js',
-    '  104  00:05  0.0 /usr/bin/ps -axo pid=,etime=,pcpu=,command=',
-    '  105  00:30  9.9 /Applications/Notes.app/Contents/MacOS/Notes',
+    '  101  1  01:23  3.5 node /usr/local/bin/claude --resume',
+    '  102  1  2-03:00:00  0.1 /opt/bin/codex exec "do it"',
+    '  103  1  00:10  1.0 node /Users/x/dsh-agent-tree/index.js',
+    '  104  1  00:05  0.0 /usr/bin/ps -axo pid=,ppid=,etime=,pcpu=,command=',
+    '  105  1  00:30  9.9 /Applications/Notes.app/Contents/MacOS/Notes',
   ].join('\n');
   const rows = parseProcessTable(table);
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].pid, 102, '按已运行时长倒序');
-  assert.equal(rows[0].kind, 'codex');
-  assert.equal(rows[0].elapsedSeconds, 2 * 86400 + 3 * 3600);
-  assert.equal(rows[1].kind, 'claude');
-  assert.equal(rows[1].elapsedSeconds, 83);
+  assert.equal(rows.length, 5, '全部进程行都保留（子进程要靠 ppid 挂树）');
+  assert.equal(rows[0].ppid, 1);
+  assert.equal(rows[0].kind, 'claude');
+  assert.equal(rows[3].kind, null, 'ps 自己不算 agent');
+  const roots = buildProcessRoots(rows);
+  assert.equal(roots.length, 2, '只有 claude/codex 两个根');
+  assert.equal(roots[0].kind, 'codex', '按已运行时长倒序');
+  assert.equal(roots[0].elapsedSeconds, 2 * 86400 + 3 * 3600);
+  assert.deepEqual(roots[1].children, []);
+});
+
+test('host buildProcessRoots nests helper children under the CLI', () => {
+  const table = [
+    '  200  40536  02-21:35:48  1.9 /Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex app-server',
+    '  201  200  41:10  0.0 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node ./server.mjs',
+    '  202  200  41:10  0.0 /Users/x/.pencil/mcp/mcp-server-darwin-arm64 --agent codexCLI',
+    '  203  201  10:00  0.0 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl',
+    '  300  40536  00:30  5.0 /opt/homebrew/bin/claude --resume',
+  ].join('\n');
+  const roots = buildProcessRoots(parseProcessTable(table));
+  assert.equal(roots.length, 2);
+  const codex = roots.find((root) => root.kind === 'codex');
+  assert.equal(codex.children.length, 3, 'helper 子进程挂到 codex 下面');
+  assert.deepEqual(
+    codex.children.map((child) => child.label).sort(),
+    ['MCP', 'computer use', 'computer use'],
+  );
+  assert.ok(codex.children.some((child) => child.pid === 203), '孙进程（深度 3）也收进来');
+  assert.deepEqual(roots.find((root) => root.kind === 'claude').children, []);
+});
+
+test('host childLabel turns ps commands into readable labels', () => {
+  assert.equal(childLabel('/x/Resources/cua_node/bin/node ./server.mjs'), 'computer use');
+  assert.equal(childLabel('/x/cua_node/bin/node_repl'), 'computer use');
+  assert.equal(childLabel('/x/codex-cli/bin/codex-code-mode-host'), 'code mode');
+  assert.equal(childLabel('/x/.pencil/mcp/mcp-server-darwin-arm64 --app vscode'), 'MCP');
+  assert.equal(childLabel('/Applications/ChatGPT.app/.../Codex (Renderer) --type=renderer'), 'renderer');
+  assert.equal(childLabel('/usr/local/bin/rg foo'), 'rg');
+});
+
+test('client groups process children by label', () => {
+  const { groupProcessChildren } = clientModule.__test;
+  const groups = groupProcessChildren([
+    { label: 'computer use', elapsedSeconds: 100, cpu: 0 },
+    { label: 'computer use', elapsedSeconds: 300, cpu: 1.5 },
+    { label: 'MCP', elapsedSeconds: 50, cpu: 0 },
+  ]);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].label, 'computer use', '数量多的排前面');
+  assert.equal(groups[0].count, 2);
+  assert.equal(groups[0].elapsedSeconds, 300, '显示最长的那个');
+  assert.equal(groups[1].label, 'MCP');
+  assert.deepEqual(groupProcessChildren(undefined), []);
 });

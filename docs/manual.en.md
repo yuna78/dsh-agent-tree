@@ -3,22 +3,27 @@
 [简体中文](manual.md) · English
 
 ```
-┌──────────────────────────────────────────────┐
-│ ● 5 个 agent 在跑 · 2 个定时              ▾  │ ← headline + collapse
-├──────────────────────────────────────────────┤
-│ ▾ proj-alpha                              2  │ ← workspace group
-│ ├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro │ ← top-level conversation (green)
-│ │  ├─ ● Explore repo structure      1m5s    │ ← subagent (blue)
-│ │  │  └─ ● Run unit tests              9s    │ ← grandchild (violet)
-│ │  └─ ● Write migration plan          31s    │
-│ └─   Fix flaky login test      ⏱2h  v4.1-flash│ ← scheduled, currently idle
-│ ▾ my-repo                                 1  │
-│ └─ ● Triage CI failures        v4.1-pro      │
-│ ──────────────────────────────────────────── │
-│ ├─ ● claude  proj-alpha              12m 3%  │ ← local external process
-│ └─ ● codex   my-repo                   3m    │
-│ 会话 6 · 子代理 3 · 运行中 5（live）         │ ← self-check line
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│ ● 5 个 agent 在跑 · 2 个定时                  ▾  │ ← headline + collapse
+├──────────────────────────────────────────────────┤
+│ ▾ dsh                            2 个 workspace  │ ← root node (this DSH instance)
+│ ├─ ▾ proj-alpha                              2  │ ← workspace
+│ │  ├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro  │ ← conversation (green)
+│ │  │  ├─ ● Explore repo structure      1m5s     │ ← subagent (blue)
+│ │  │  │  └─ ● Run unit tests              9s     │ ← grandchild (violet)
+│ │  │  └─ ● Write migration plan          31s     │
+│ │  └─   Fix flaky login test      ⏱2h  v4.1-flash │ ← scheduled, currently idle
+│ └─ ▾ my-repo                                 1  │
+│    └─ ● Triage CI failures        v4.1-pro       │
+│ ────────────────────────────────────────────────  │
+│ ├─ ▾ ● claude  proj-alpha              12m 3%    │ ← local external process
+│ │  └─ computer use ×2                    41m     │ ← its children, grouped by kind
+│ └─ ▾ ● codex   ChatGPT              69h35m 2%    │
+│    ├─ MCP ×2                             2h50m   │
+│    ├─ computer use ×2                     41m    │
+│    └─ code mode                           41m    │
+│ 会话 6 · 子代理 3 · 运行中 5（live）             │ ← self-check line
+└──────────────────────────────────────────────────┘
 ```
 
 ## 1. Headline
@@ -32,6 +37,20 @@
 
 Auto-collapse rule: collapse when `running === 0 && scheduled === 0`; expand automatically as soon as work appears
 (unless you collapsed it manually).
+
+## 1.5 Levels
+
+Four levels (plus grandchild, i.e. five in the deepest row):
+
+```
+dsh (this instance)
+└─ workspace
+   └─ conversation
+      └─ subagent
+         └─ grandchild …
+```
+
+The `dsh` root row collapses every workspace at once; its right side shows the workspace count.
 
 ## 2. Row elements
 
@@ -78,6 +97,21 @@ Read-only probe from the host half, listing running `claude` / `codex` CLIs on t
 - Max 8 rows, 3s cache on the host, requires a logged-in session (401 otherwise).
 - Purpose: "while I work inside DSH, is some other agent also running on this machine?"
 
+## 6.5 External processes are a tree too
+
+`claude` / `codex` are roots; their children hang under them by `ppid`, grouped by kind:
+
+```
+├─ ▾ ● codex  ChatGPT        69h35m 2%
+│  ├─ MCP ×2                    2h50m
+│  ├─ computer use ×2             41m
+│  └─ code mode                   41m
+```
+
+- `×N` = how many children of that kind; the right column shows the longest elapsed among them.
+- Clicking the process root collapses its subtree.
+- A real agent CLI found among the descendants is listed as its own root instead of being nested twice.
+
 ## 7. Interaction
 
 | Action | Effect |
@@ -108,5 +142,5 @@ Read-only probe from the host half, listing running `claude` / `codex` CLIs on t
 
 - Only the current Web instance's sessions are visible (not other profiles or machines).
 - Running state follows DSH status events; a finished subagent may linger for a second or two.
-- Width is fixed at 272px; long titles elide (change `WIDTH` in `client.js`).
+- Width is fixed at 288px; long titles elide (change `WIDTH` in `client.js`).
 - UI strings are Chinese for now.

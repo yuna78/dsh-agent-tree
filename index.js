@@ -19,11 +19,22 @@ export const inject = ['webServer'];
 const ROUTE_PATH = '/local/dsh-agent-tree/processes';
 const CACHE_MS = 3000;
 const MAX_PROCESSES = 8;
+const MAX_CHILDREN = 12;
+const MAX_CHILD_DEPTH = 3;
 const PS_TIMEOUT_MS = 4000;
 const LSOF_TIMEOUT_MS = 1500;
 
 /** 可执行文件名（小写精确）：只认真正的 CLI，不认 ChatGPT.app 里的 Codex 框架/助手进程。 */
 const AGENT_EXECUTABLES = new Set(['claude', 'codex']);
+
+/** 子孙进程的可读标签（顺序有意义：先匹配更具体的）。 */
+const CHILD_HINTS = [
+  [/cua-repl|node_repl|SkyComputerUseService|server\.mjs/i, 'computer use'],
+  [/code-mode-host/i, 'code mode'],
+  [/mcp-server/i, 'MCP'],
+  [/\(Renderer\)/i, 'renderer'],
+  [/crashpad/i, 'crashpad'],
+];
 
 /** 跑一个短命令，失败就给空字符串（探测型调用，不需要抛错）。 */
 function run(file, args, timeout) {
@@ -61,24 +72,66 @@ export function detectAgent(command) {
   return null;
 }
 
-/** 解析 `ps -axo pid=,etime=,pcpu=,command=`。 */
+/** 解析 `ps -axo pid=,ppid=,etime=,pcpu=,command=`（保留全部行，agent 判定在 kind 上）。 */
 export function parseProcessTable(text) {
   const rows = [];
   for (const line of String(text).split('\n')) {
-    const match = /^\s*(\d+)\s+(\S+)\s+([\d.]+)\s+(.*)$/.exec(line);
+    const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+([\d.]+)\s+(.*)$/.exec(line);
     if (match === null) continue;
-    const command = match[4];
-    const kind = detectAgent(command);
-    if (kind === null) continue;
+    const command = match[5];
     rows.push({
       pid: Number(match[1]),
-      kind,
-      elapsedSeconds: elapsedSeconds(match[2]),
-      cpu: Number(match[3]) || 0,
+      ppid: Number(match[2]),
+      kind: detectAgent(command),
+      elapsedSeconds: elapsedSeconds(match[3]),
+      cpu: Number(match[4]) || 0,
       command,
     });
   }
-  return rows.sort((a, b) => b.elapsedSeconds - a.elapsedSeconds).slice(0, MAX_PROCESSES);
+  return rows;
+}
+
+/** 一行能看懂的子孙进程标签：codex app-server 的 computer-use / MCP 子进程等。 */
+export function childLabel(command) {
+  const text = String(command || '');
+  for (const [pattern, label] of CHILD_HINTS) {
+    if (pattern.test(text)) return label;
+  }
+  const first = text.split(/\s+/)[0] || '';
+  return baseName(first).replace(/\.(js|mjs|cjs|ts)$/, '') || 'child';
+}
+
+/** 从 ps 行里挑出 claude/codex 根进程，并把它们的非 agent 后代挂成子树。 */
+export function buildProcessRoots(rows, maxRoots = MAX_PROCESSES) {
+  const childrenOf = new Map();
+  for (const row of rows) {
+    if (!childrenOf.has(row.ppid)) childrenOf.set(row.ppid, []);
+    childrenOf.get(row.ppid).push(row);
+  }
+  const roots = rows
+    .filter((row) => row.kind !== null)
+    .sort((a, b) => b.elapsedSeconds - a.elapsedSeconds)
+    .slice(0, maxRoots);
+  return roots.map((root) => {
+    const children = [];
+    const walk = (pid, depth) => {
+      if (depth > MAX_CHILD_DEPTH || children.length >= MAX_CHILDREN) return;
+      for (const child of childrenOf.get(pid) || []) {
+        // 嵌套的 agent 自己就是一个根，别重复挂
+        if (child.kind !== null) continue;
+        children.push({
+          pid: child.pid,
+          label: childLabel(child.command),
+          elapsedSeconds: child.elapsedSeconds,
+          cpu: child.cpu,
+        });
+        walk(child.pid, depth + 1);
+      }
+    };
+    walk(root.pid, 1);
+    children.sort((a, b) => b.elapsedSeconds - a.elapsedSeconds);
+    return { ...root, children: children.slice(0, MAX_CHILDREN) };
+  });
 }
 
 /** 命令行里显式写出的工作目录（`--cwd /x`、`--cd=/x`、`-C /x`），拿不到就空串。 */
@@ -105,10 +158,9 @@ async function snapshot() {
   const now = Date.now();
   if (cache.payload !== null && now - cache.at < CACHE_MS) return cache.payload;
 
-  const table = await run('ps', ['-axo', 'pid=,etime=,pcpu=,command='], PS_TIMEOUT_MS);
-  const rows = parseProcessTable(table);
+  const table = await run('ps', ['-axo', 'pid=,ppid=,etime=,pcpu=,command='], PS_TIMEOUT_MS);
   const processes = [];
-  for (const row of rows) {
+  for (const row of buildProcessRoots(parseProcessTable(table))) {
     let cwd = await cwdOf(row.pid);
     if (cwd === '' || cwd === '/') cwd = argCwd(row.command) || cwd;
     processes.push({
@@ -118,6 +170,7 @@ async function snapshot() {
       cpu: row.cpu,
       cwd,
       label: displayLabel(row.command, cwd),
+      children: row.children,
     });
   }
   const payload = { at: now, processes };
