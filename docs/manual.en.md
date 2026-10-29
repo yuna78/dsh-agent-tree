@@ -130,6 +130,27 @@ color differs (claude orange / codex green):
 - Clicking the process root collapses its subtree.
 - A real agent CLI found among the descendants is listed as its own root instead of being nested twice.
 
+### 6.2 codex sub-conversations (subagent threads)
+
+Every codex session (CLI or ChatGPT desktop) writes a rollout: `~/.codex/sessions/<y>/<m>/<d>/rollout-*.jsonl`.
+Its first line is `session_meta`, which already carries `thread_source: subagent`, `parent_thread_id`,
+`agent_nickname` and `agent_path`. The plugin reads only those headers and rebuilds the tree by `parent_thread_id`,
+hanging it under the codex row:
+
+```
+▾ ● codex ChatGPT              69h35m 2%
+   ├─ ● Hubble   advance_review_logic       running
+   ├─ ● Carson   review_nextarchive_code    16m前
+   ├─ ● Wegener  review_nextarchive_triage  1h42m前
+   ├─ MCP ×2                                2h50m
+   └─ computer use ×2                        41m
+```
+
+- Active within the last two minutes → `running` (green, bold); otherwise "last active N ago".
+- Which main session: matched by the process cwd first (worktree runs match on a cwd prefix); for ChatGPT desktop
+  processes the cwd is usually `/`, so a session whose `originator` contains `Desktop` wins.
+- At most 8 sub-conversations, 3 levels deep. Local read-only, no network.
+
 ## 7. Interaction
 
 | Action | Effect |

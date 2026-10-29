@@ -10,6 +10,9 @@
  *   - 每次最多扫 8 个匹配进程，lsof 有超时，结果缓存 3 秒。
  */
 import { execFile } from 'node:child_process';
+import { open, readdir, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 export const name = 'dsh-agent-tree';
 
@@ -23,6 +26,15 @@ const MAX_CHILDREN = 12;
 const MAX_CHILD_DEPTH = 3;
 const PS_TIMEOUT_MS = 4000;
 const LSOF_TIMEOUT_MS = 1500;
+
+// codex 的子对话（subagent threads）：读它自己的 rollout 记录，只读、只在本机。
+const CODEX_LOOKBACK_MS = 48 * 3600 * 1000;
+const CODEX_MAX_FILES = 240;
+const CODEX_HEADER_BYTES = 4 * 1024 * 1024;
+const CODEX_ACTIVE_MS = 120 * 1000;
+const CODEX_SCAN_DAYS = 3;
+const MAX_THREADS = 8;
+const MAX_THREAD_DEPTH = 3;
 
 /** 可执行文件名（小写精确）：只认真正的 CLI，不认 ChatGPT.app 里的 Codex 框架/助手进程。 */
 const AGENT_EXECUTABLES = new Set(['claude', 'codex']);
@@ -140,6 +152,190 @@ export function argCwd(command) {
   return match === null ? '' : match[1];
 }
 
+// ---------------------------------------------------------------- codex 子对话
+//
+// codex（CLI 与 ChatGPT 桌面端）每次会话都会写 `<CODEX_HOME>/sessions/<y>/<m>/<d>/rollout-*.jsonl`，
+// 第一行是 `session_meta`，里面有 cwd、是否 subagent、父线程 id、昵称、agent 路径。
+// 所以「codex 的子对话」不用猜：按 parent_thread_id 就能还原成树。
+
+/** codex 的数据目录（`CODEX_HOME` 优先）。 */
+export function codexHome() {
+  const fromEnv = process.env.CODEX_HOME;
+  return typeof fromEnv === 'string' && fromEnv !== '' ? fromEnv : join(homedir(), '.codex');
+}
+
+/** rollout 里的一行 `session_meta` → 归一化后的线程信息；第一条不是 meta 就返回 null。 */
+export function parseRolloutMeta(text) {
+  const lines = String(text || '').split('\n');
+  for (const line of lines) {
+    if (line.trim() === '') continue;
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch (err) {
+      return null; // 头部被截断/不是 JSON：当作读不到
+    }
+    if (obj === null || typeof obj !== 'object' || obj.type !== 'session_meta') return null;
+    const payload = obj.payload;
+    if (payload === null || typeof payload !== 'object') return null;
+    const source = payload.source !== null && typeof payload.source === 'object' ? payload.source : {};
+    const subagent = source.subagent !== null && typeof source.subagent === 'object' ? source.subagent : {};
+    const spawn = subagent.thread_spawn !== null && typeof subagent.thread_spawn === 'object' ? subagent.thread_spawn : {};
+    const id = typeof payload.id === 'string' ? payload.id : '';
+    return {
+      id,
+      sessionId: typeof payload.session_id === 'string' ? payload.session_id : '',
+      parentId: typeof spawn.parent_thread_id === 'string' ? spawn.parent_thread_id : '',
+      depth: Number(spawn.depth) || 0,
+      isSubagent: payload.thread_source === 'subagent' || Object.keys(spawn).length > 0,
+      nickname: typeof payload.agent_nickname === 'string' ? payload.agent_nickname : '',
+      agentPath: typeof payload.agent_path === 'string' ? payload.agent_path : '',
+      cwd: typeof payload.cwd === 'string' ? payload.cwd : '',
+      originator: typeof payload.originator === 'string' ? payload.originator : '',
+    };
+  }
+  return null;
+}
+
+/** 从文件头读若干行（rollout 的第一行可能很大，含完整 base_instructions）。 */
+async function readHeader(path) {
+  let handle;
+  try {
+    handle = await open(path, 'r');
+  } catch (err) {
+    return '';
+  }
+  try {
+    const buffer = Buffer.allocUnsafe(CODEX_HEADER_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, CODEX_HEADER_BYTES, 0);
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } catch (err) {
+    return '';
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+/** 最近几天的 rollout 文件（按 mtime 倒序，最多 CODEX_MAX_FILES 个）。 */
+async function recentRollouts(now) {
+  const root = join(codexHome(), 'sessions');
+  const files = [];
+  for (let back = 0; back < CODEX_SCAN_DAYS && files.length < CODEX_MAX_FILES * 4; back += 1) {
+    const day = new Date(now - back * 86400 * 1000);
+    const dir = join(
+      root,
+      String(day.getFullYear()),
+      String(day.getMonth() + 1).padStart(2, '0'),
+      String(day.getDate()).padStart(2, '0'),
+    );
+    let names;
+    try {
+      names = await readdir(dir);
+    } catch (err) {
+      continue;
+    }
+    for (const name of names) {
+      if (!name.startsWith('rollout-') || !name.endsWith('.jsonl')) continue;
+      const path = join(dir, name);
+      let info;
+      try {
+        info = await stat(path);
+      } catch (err) {
+        continue;
+      }
+      if (now - info.mtimeMs > CODEX_LOOKBACK_MS) continue;
+      files.push({ path, mtime: info.mtimeMs });
+    }
+  }
+  files.sort((a, b) => b.mtime - a.mtime);
+  return files.slice(0, CODEX_MAX_FILES);
+}
+
+const metaCache = new Map();
+
+/** 最近 rollout 的 meta 列表（按 path+mtime 缓存，避免每 3 秒重读全部文件）。 */
+async function recentCodexMetas(now) {
+  const metas = [];
+  for (const file of await recentRollouts(now)) {
+    const hit = metaCache.get(file.path);
+    if (hit !== undefined && hit.mtime === file.mtime) {
+      metas.push(hit.meta);
+      continue;
+    }
+    const meta = parseRolloutMeta(await readHeader(file.path));
+    if (meta === null) continue;
+    const entry = { ...meta, path: file.path, mtime: file.mtime };
+    metaCache.set(file.path, { mtime: file.mtime, meta: entry });
+    metas.push(entry);
+  }
+  return metas;
+}
+
+/** 导出给自检/排查用：本机最近 rollout 的 meta 列表。 */
+export async function collectCodexMetas(now = Date.now()) {
+  return await recentCodexMetas(now);
+}
+
+/** 纯函数：给一个根线程 id，收集它下面（最多 MAX_THREADS 个、最深 MAX_THREAD_DEPTH 层）的子对话。 */
+export function codexThreadsUnder(metas, rootId, now) {
+  if (!Array.isArray(metas) || typeof rootId !== 'string' || rootId === '') return [];
+  const children = new Map();
+  for (const meta of metas) {
+    if (!meta || !meta.isSubagent || meta.parentId === '') continue;
+    const list = children.get(meta.parentId) || [];
+    list.push(meta);
+    children.set(meta.parentId, list);
+  }
+  const out = [];
+  const walk = (parentId, depth) => {
+    if (depth > MAX_THREAD_DEPTH) return;
+    const list = (children.get(parentId) || []).slice().sort((a, b) => b.mtime - a.mtime);
+    for (const meta of list) {
+      if (out.length >= MAX_THREADS) return;
+      const idle = Math.max(0, Math.round((now - meta.mtime) / 1000));
+      out.push({
+        nickname: meta.nickname || baseName(meta.agentPath) || '子对话',
+        agentPath: meta.agentPath || '',
+        depth,
+        idleSeconds: idle,
+        running: now - meta.mtime < CODEX_ACTIVE_MS,
+      });
+      walk(meta.id, depth + 1);
+    }
+  };
+  walk(rootId, 1);
+  return out;
+}
+
+/**
+ * 纯函数：给一个 codex 进程，挑出它对应的主线程（rollout 的根）。
+ *
+ * 匹配顺序：同 cwd → cwd 互为前缀（进程在 worktree 里跑）→ 桌面端进程优先挑
+ * `originator` 带 Desktop 的会话（ChatGPT.app 里的 codex 进程 cwd 常常是 `/`）→ 最新的主线程。
+ * @param metas - `collectCodexMetas` 的结果
+ * @param cwd - 该进程的工作目录
+ * @param options - `preferDesktop`：进程来自 ChatGPT / Codex 桌面端
+ */
+export function pickCodexRoot(metas, cwd, options = {}) {
+  if (!Array.isArray(metas)) return undefined;
+  const roots = metas.filter((meta) => meta && !meta.isSubagent);
+  if (roots.length === 0) return undefined;
+  const sorted = roots.slice().sort((a, b) => b.mtime - a.mtime);
+  if (typeof cwd === 'string' && cwd !== '' && cwd !== '/') {
+    const exact = sorted.find((meta) => meta.cwd === cwd);
+    if (exact !== undefined) return exact;
+    const nested = sorted.find(
+      (meta) => meta.cwd !== '' && (meta.cwd.startsWith(cwd) || cwd.startsWith(meta.cwd)),
+    );
+    if (nested !== undefined) return nested;
+  }
+  if (options !== null && typeof options === 'object' && options.preferDesktop === true) {
+    const desktop = sorted.find((meta) => /desktop/i.test(meta.originator));
+    if (desktop !== undefined) return desktop;
+  }
+  return sorted[0];
+}
+
 /** 用 lsof 取进程工作目录；拿不到就空串。 */
 async function cwdOf(pid) {
   const out = await run('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], LSOF_TIMEOUT_MS);
@@ -159,10 +355,16 @@ async function snapshot() {
   if (cache.payload !== null && now - cache.at < CACHE_MS) return cache.payload;
 
   const table = await run('ps', ['-axo', 'pid=,ppid=,etime=,pcpu=,command='], PS_TIMEOUT_MS);
+  const rows = buildProcessRoots(parseProcessTable(table));
+  const codexMetas = rows.some((row) => row.kind === 'codex') ? await recentCodexMetas(now) : [];
   const processes = [];
-  for (const row of buildProcessRoots(parseProcessTable(table))) {
+  for (const row of rows) {
     let cwd = await cwdOf(row.pid);
     if (cwd === '' || cwd === '/') cwd = argCwd(row.command) || cwd;
+    const root =
+      row.kind === 'codex'
+        ? pickCodexRoot(codexMetas, cwd, { preferDesktop: /ChatGPT\.app|CodexCLI\.app|Codex\.app/i.test(row.command) })
+        : undefined;
     processes.push({
       pid: row.pid,
       kind: row.kind,
@@ -171,6 +373,7 @@ async function snapshot() {
       cwd,
       label: displayLabel(row.command, cwd),
       children: row.children,
+      threads: root === undefined ? [] : codexThreadsUnder(codexMetas, root.id, now),
     });
   }
   const payload = { at: now, processes };

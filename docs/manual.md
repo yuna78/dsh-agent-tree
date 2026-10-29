@@ -132,6 +132,26 @@ DSH 的 Automation tasks（`schedule.catalog()`）驱动的是「间歇式工作
 - 点进程根行可以折叠它的子树；
 - 子孙里如果又是一个真正的 agent CLI，会单独作为根出现，不重复挂。
 
+### 6.2 codex 的子对话（subagent threads）
+
+codex（CLI 和 ChatGPT 桌面端）每开一个会话都会写一条 rollout：`~/.codex/sessions/<年>/<月>/<日>/rollout-*.jsonl`。
+第一行是 `session_meta`，里面就有 `thread_source: subagent`、`parent_thread_id`、`agent_nickname`、`agent_path`。
+插件只读这些头部、按 `parent_thread_id` 串成树，挂在 codex 那一行下面：
+
+```
+▾ ● codex ChatGPT              69h35m 2%
+   ├─ ● Hubble   advance_review_logic       running
+   ├─ ● Carson   review_nextarchive_code    16m前
+   ├─ ● Wegener  review_nextarchive_triage  1h42m前
+   ├─ MCP ×2                                2h50m
+   └─ computer use ×2                        41m
+```
+
+- 2 分钟内活动过标 `running`（绿点加粗），否则显示「最后活动多久前」。
+- 找的是哪条主会话：先按进程 cwd 匹配，worktree 里跑的就取 cwd 互为前缀的那条；
+  ChatGPT 桌面端进程 cwd 常常是 `/`，这时优先挑 `originator` 带 `Desktop` 的会话。
+- 最多 8 个子对话、最深 3 层。只读本机、不联网、不外发。
+
 ## 7. 交互
 
 | 操作 | 效果 |

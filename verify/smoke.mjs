@@ -100,6 +100,7 @@ const CLIENT_MARKERS = [
   ['modelSelection', '模型标签数据源'],
   ['schedule.catalog', '定时任务数据源'],
   ["'remote.schedule'", '定时任务命名空间兜底'],
+  ['proc.threads', 'codex 子对话渲染'],
   ['pendingInteraction', '待你处理（提问/审批/计划审阅）数据源'],
   ['api-session/status', '实时 running 事件'],
   ['/local/dsh-agent-tree/processes', '外部进程接口'],
@@ -122,6 +123,9 @@ const HOST_MARKERS = [
   ['detectAgent', 'CLI 识别'],
   ['CACHE_MS', '结果缓存'],
   ['PS_TIMEOUT_MS', '超时护栏'],
+  ['parseRolloutMeta', 'codex rollout 解析'],
+  ['codexThreadsUnder', 'codex 子对话树'],
+  ['rollout-', 'codex 会话文件前缀'],
 ];
 for (const [marker, label] of HOST_MARKERS) {
   if (!host.includes(marker)) fail(`index.js 少了${label}（${marker}）`);

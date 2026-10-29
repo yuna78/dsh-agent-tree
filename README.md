@@ -27,6 +27,10 @@
 - **本机外部 agent 进程（也是树）**：插件宿主半部提供只读接口，用 `ps` + `lsof` 找到本机正在跑的 **claude / codex CLI**，
   再按 `ppid` 把它们的子进程挂成子树（如 codex 的 `computer use ×4` / `MCP ×3` / `code mode`）。它们是**和 `dsh` 同级的顶层 agent 节点**，行规格完全一致，可折叠。
   ChatGPT 桌面端里的 `Codex Framework` 辅助进程本身不会被误认成 CLI。
+- **codex 的子对话也看得见**：读 codex 自己的会话记录（`~/.codex/sessions/**/rollout-*.jsonl` 的第一行
+  `session_meta`），按 `parent_thread_id` 还原它的 subagent 线程树，挂在 codex 那行下面——
+  `● Hubble advance_review_logic  running` / `● Carson review_nextarchive_code  16m前`。
+  只读本机文件、不联网、不外发。（claude 的 sidechain 结构不同，暂未解析。）
 - **点一行就跳过去**：`subagentAddress(id)` + `uiWorkspace.openSession()`，连 subagent 也能直接落到它的对话。
 - **拖动 + 位置记忆**：拖标题栏移动，位置存 `localStorage`，下次还在原处。
 
@@ -75,6 +79,7 @@ dsh plugin --profile web add "$PWD"
 | `│  │  └─ ● Run unit tests  v4.1-flash  9s` | 孙代理（紫点） |
 | `▾ ● claude proj-alpha         12m 3%` | 本机另一个 agent（和 `dsh` 同级）：claude CLI，工作目录 `proj-alpha`，跑了 12 分钟、3% CPU |
 | `│  └─ computer use ×2            41m` | 它的子进程，自动按种类归组（`×N` + 最长的那个时长） |
+| `│  ├─ ● Hubble advance_review_logic  running` | codex 的子对话（subagent 线程）：昵称 + agent 路径，右边是「正在工作 / 最后活动多久前」 |
 | `会话 6 · 子代理 3 · 运行中 5（live）` | 自检：快照里的会话数 / 子代理数 / 运行中数量；`live` 表示官方实时状态流 |
 
 - 点任意一行 → 跳到对应会话（subagent 会跳到它自己的对话）。

@@ -819,8 +819,60 @@ window.__ModuleLoader__.load({
           ),
         );
         if (!procOpen) return;
-        childGroups.forEach((child, childIndex) => {
-          const isLastChild = childIndex === childGroups.length - 1;
+
+        // 子对话（codex 的 subagent threads，来自它自己的 rollout 记录）排在子进程前面
+        const threads = Array.isArray(proc.threads) ? proc.threads : [];
+        const entries = [
+          ...threads.map((thread) => ({ kind: 'thread', thread })),
+          ...childGroups.map((child) => ({ kind: 'child', child })),
+        ];
+        entries.forEach((entry, index) => {
+          const isLastEntry = index === entries.length - 1;
+          const connector = isLastEntry ? '└─' : '├─';
+
+          if (entry.kind === 'thread') {
+            const thread = entry.thread;
+            const indent = '   '.repeat(Math.max(0, (Number(thread.depth) || 1) - 1));
+            const pathLeaf = thread.agentPath ? String(thread.agentPath).split('/').filter(Boolean).pop() || '' : '';
+            const idle = Number(thread.idleSeconds) || 0;
+            rows.push(
+              h(
+                'div',
+                {
+                  key: `${procKey}:thread:${index}`,
+                  title: `${thread.nickname}${thread.agentPath ? `\n${thread.agentPath}` : ''}\n${
+                    thread.running ? '正在工作' : `最后活动 ${formatElapsed(idle)}前`
+                  }`,
+                  style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '2px 8px 2px 12px',
+                    minWidth: 0,
+                  },
+                },
+                glyph(`${indent}${connector}`),
+                h(Dot, { color: DOT.conversation, active: thread.running === true }),
+                clampSpan(thread.nickname || pathLeaf || '子对话', {
+                  flex: 'none',
+                  fontSize: 10.5,
+                  fontWeight: thread.running === true ? 600 : 500,
+                  color: thread.running === true ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
+                }),
+                pathLeaf && thread.nickname
+                  ? clampSpan(pathLeaf, { fontSize: 9, color: 'var(--dsw-alias-label-tertiary)' })
+                  : h('span', { style: { flex: 1 } }),
+                h(
+                  'span',
+                  { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)', opacity: 0.85 } },
+                  thread.running === true ? 'running' : `${formatElapsed(idle)}前`,
+                ),
+              ),
+            );
+            return;
+          }
+
+          const child = entry.child;
           rows.push(
             h(
               'div',
@@ -835,7 +887,7 @@ window.__ModuleLoader__.load({
                   minWidth: 0,
                 },
               },
-              glyph(isLastChild ? '└─' : '├─'),
+              glyph(connector),
               clampSpan(child.count > 1 ? `${child.label} ×${child.count}` : child.label, {
                 fontSize: 10.5,
                 color: 'var(--dsw-alias-label-tertiary)',

@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProcessTable, detectAgent, argCwd, buildProcessRoots, childLabel } from '../index.js';
+import {
+  parseProcessTable,
+  detectAgent,
+  argCwd,
+  buildProcessRoots,
+  childLabel,
+  parseRolloutMeta,
+  codexThreadsUnder,
+  pickCodexRoot,
+  codexHome,
+} from '../index.js';
 
 /**
  * 在 Node 里模拟浏览器模块加载器：拿到 client.js 的 factory，喂一个假的
@@ -408,4 +418,127 @@ test('client groups process children by label', () => {
   assert.equal(groups[0].elapsedSeconds, 300, '显示最长的那个');
   assert.equal(groups[1].label, 'MCP');
   assert.deepEqual(groupProcessChildren(undefined), []);
+});
+
+// ------------------------------------------------------------ codex 子对话
+
+const metaLine = (payload) => JSON.stringify({ timestamp: 't', ordinal: 0, type: 'session_meta', payload });
+
+const rootPayload = { id: 'root-1', session_id: 'root-1', cwd: '/work/devline', originator: 'Codex Desktop', thread_source: 'thread' };
+const subPayload = (id, parent, nick, path, depth = 1) => ({
+  id,
+  session_id: id,
+  cwd: '/work/devline',
+  thread_source: 'subagent',
+  agent_nickname: nick,
+  agent_path: path,
+  source: { subagent: { thread_spawn: { parent_thread_id: parent, depth, agent_path: path, agent_nickname: nick } } },
+});
+
+test('parseRolloutMeta reads the session_meta header and leaves huge text alone', () => {
+  const huge = metaLine({ ...rootPayload, base_instructions: { text: 'x'.repeat(5000) } });
+  const meta = parseRolloutMeta(`${huge}\n${JSON.stringify({ type: 'event_msg' })}\n`);
+  assert.equal(meta.id, 'root-1');
+  assert.equal(meta.cwd, '/work/devline');
+  assert.equal(meta.isSubagent, false);
+  assert.equal(meta.parentId, '');
+});
+
+test('parseRolloutMeta marks subagent threads and their parent', () => {
+  const meta = parseRolloutMeta(metaLine(subPayload('kid-1', 'root-1', 'Hubble', '/root/advance_review_logic')));
+  assert.equal(meta.isSubagent, true);
+  assert.equal(meta.parentId, 'root-1');
+  assert.equal(meta.depth, 1);
+  assert.equal(meta.nickname, 'Hubble');
+  assert.equal(meta.agentPath, '/root/advance_review_logic');
+});
+
+test('parseRolloutMeta gives up quietly on non-JSON / non-meta headers', () => {
+  assert.equal(parseRolloutMeta('not json at all\n'), null);
+  assert.equal(parseRolloutMeta(JSON.stringify({ type: 'event_msg', payload: {} })), null);
+  assert.equal(parseRolloutMeta(''), null);
+  assert.equal(parseRolloutMeta(null), null);
+});
+
+const threadsFixture = () => {
+  const now = Date.now();
+  const mk = (meta, mtimeMs) => ({ ...meta, mtime: mtimeMs, path: `/tmp/${meta.id}.jsonl` });
+  return {
+    now,
+    metas: [
+      mk({ ...rootPayload }, now - 60000),
+      mk(parseRolloutMeta(metaLine(subPayload('kid-1', 'root-1', 'Hubble', '/root/advance_review_logic'))), now - 13000),
+      mk(parseRolloutMeta(metaLine(subPayload('kid-2', 'root-1', 'Carson', '/root/review_nextarchive_code'))), now - 900000),
+      mk(parseRolloutMeta(metaLine(subPayload('grand-1', 'kid-1', 'Wegener', '/root/deep_work', 2))), now - 5000),
+      mk(parseRolloutMeta(metaLine(subPayload('other', 'root-2', 'Nobody', '/root/other'))), now - 1000),
+    ],
+  };
+};
+
+test('codexThreadsUnder walks parent → child → grandchild of one root thread', () => {
+  const { metas, now } = threadsFixture();
+  const threads = codexThreadsUnder(metas, 'root-1', now);
+  assert.equal(threads.length, 3, '两个直接子对话 + 一个孙对话，root-2 的不会串进来');
+  assert.deepEqual(
+    threads.map((thread) => thread.nickname),
+    ['Hubble', 'Wegener', 'Carson'],
+    '最近的排前面（Hubble 刚活动过，Carson 15 分钟前）',
+  );
+  assert.equal(threads[0].running, true, '2 分钟内活动过就算 running');
+  assert.equal(threads[0].idleSeconds, 13);
+  assert.equal(threads[1].depth, 2, '孙对话带深度，客户端按深度缩进');
+  assert.equal(threads[2].running, false);
+  assert.equal(codexThreadsUnder(metas, 'unknown', now).length, 0);
+  assert.equal(codexThreadsUnder(null, 'root-1', now).length, 0);
+});
+
+test('codexThreadsUnder caps how much of a huge subagent fan-out it reports', () => {
+  const now = Date.now();
+  const metas = [parseRolloutMeta(metaLine(rootPayload))];
+  for (let index = 0; index < 30; index += 1) {
+    metas.push({
+      ...parseRolloutMeta(metaLine(subPayload(`kid-${index}`, 'root-1', `Agent${index}`, `/root/a${index}`))),
+      mtime: now - index * 1000,
+    });
+  }
+  const threads = codexThreadsUnder(metas, 'root-1', now);
+  assert.equal(threads.length, 8, '最多 8 个子对话');
+  assert.equal(threads[0].nickname, 'Agent0', '按最近活动排序');
+});
+
+test('pickCodexRoot prefers the same cwd, then the newest root', () => {
+  const now = Date.now();
+  const metas = [
+    { ...parseRolloutMeta(metaLine(rootPayload)), mtime: now - 5000 },
+    { ...parseRolloutMeta(metaLine({ ...rootPayload, id: 'root-2', cwd: '/work/other' })), mtime: now - 1000 },
+    { ...parseRolloutMeta(metaLine(subPayload('kid-1', 'root-1', 'Hubble', '/root/x'))), mtime: now },
+  ];
+  assert.equal(pickCodexRoot(metas, '/work/devline').id, 'root-1', '同 cwd 的优先');
+  assert.equal(pickCodexRoot(metas, '/work/devline/sub').id, 'root-1', 'cwd 互为前缀也能对上（worktree 场景）');
+  assert.equal(pickCodexRoot(metas, '/nope').id, 'root-2', '对不上 cwd 就用最新的主线程');
+  assert.equal(pickCodexRoot([], '/x'), undefined);
+  assert.equal(pickCodexRoot(metas.slice(2, 3), '/x'), undefined, '只有子对话时没有主线程');
+});
+
+test('pickCodexRoot prefers a desktop-originated thread when the process cwd is useless', () => {
+  const now = Date.now();
+  const metas = [
+    { ...parseRolloutMeta(metaLine({ ...rootPayload, id: 'cli', originator: 'codex_exec' })), mtime: now - 500 },
+    { ...parseRolloutMeta(metaLine({ ...rootPayload, id: 'desk', originator: 'Codex Desktop' })), mtime: now - 60000 },
+  ];
+  assert.equal(
+    pickCodexRoot(metas, '/', { preferDesktop: true }).id,
+    'desk',
+    'ChatGPT.app 里的进程 cwd 是 /，靠 originator 认',
+  );
+  assert.equal(pickCodexRoot(metas, '/', { preferDesktop: false }).id, 'cli', '不开启就不特殊处理，回到最新');
+});
+
+test('codexHome respects CODEX_HOME', () => {
+  const before = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = '/tmp/codex-home-test';
+  assert.equal(codexHome(), '/tmp/codex-home-test');
+  delete process.env.CODEX_HOME;
+  assert.ok(codexHome().endsWith('/.codex'));
+  if (before !== undefined) process.env.CODEX_HOME = before;
 });
