@@ -639,6 +639,9 @@ test('buildInstances 把其它 dsh 实例的端口和会话拼成可渲染节点
     },
   };
   const statuses = new Map([['a2', { running: false, pendingInteraction: { kind: 'approval' } }]]);
+  sessions.byId.b1 = { id: 'b1', displayTitle: '子代理一', parentId: 'a1', updatedAt: now - 60000 };
+  sessions.byId.b2 = { id: 'b2', displayTitle: '子代理二', parentId: 'a1', updatedAt: now - 120000 };
+  sessions.byId.b3 = { id: 'b3', displayTitle: '别人的子代理', parentId: 'zzz', updatedAt: now };
   const views = buildInstances(
     [{ pid: 4242, ports: [3083, 3082], sessionIds: ['a1', 'a2', 'ghost'] }],
     sessions,
@@ -654,7 +657,11 @@ test('buildInstances 把其它 dsh 实例的端口和会话拼成可渲染节点
   assert.equal(view.waiting, true);
   assert.equal(view.rows[0].id, 'a1', '按最近更新排序');
   assert.equal(view.rows[0].updatedLabel, '3m');
+  assert.equal(view.rows[0].subagents, 2, '数 parentId 指向该会话的子会话');
+  assert.deepEqual(view.rows[0].children.map((child) => child.id), ['b1', 'b2']);
   assert.equal(view.rows[1].waiting, 'approval');
+  assert.equal(view.subagents, 2, '实例总 subagent 数');
+  assert.equal(view.rows[1].subagents, 0);
 
   assert.deepEqual(buildInstances([], sessions, statuses, now), []);
   assert.deepEqual(buildInstances(null, null, null, now), []);

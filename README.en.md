@@ -20,8 +20,8 @@ at which depth, on which model, for how long, and when its next scheduled run fi
 - **Color = depth** — green dot for top-level conversations, blue for level-2 subagents, violet for deeper ones, grey for finished rows.
 - **Per-row model chip** (right aligned) — from the session projection `modelSelection` (`next` → `lastUsed`), shortened to `v4.1-flash`; subagents without their own record inherit the parent's (tooltip says so).
 - **Multiple local dsh instances** — when you run several `dsh web --port 30xx` at once, sessions live in the other instances
-  show up too: one top-level node per instance (`dsh :3083`) with the sessions it currently has open; click to open that instance
-  in a new tab. The host half discovers ports and sessions via `ps` + `lsof` on local files, so no cross-instance auth is needed.
+  show up too: one top-level node per instance (`dsh :3083`) labelled with its session / subagent counts, listing the sessions it
+  currently has open — each row shows how many subagents hang off it (`▸` expands them); click to open that instance in a new tab. The host half discovers ports and sessions via `ps` + `lsof` on local files, so no cross-instance auth is needed.
 - **Alarm clock on loop sessions** — any session driven by a schedule keeps a `⏰` in front of its title, with the countdown to the next run on the right (`8m` / `2h` / `3d`); a round that just fired shows `now` and still keeps the clock, so a running loop never looks like a plain conversation.
 - **Scheduled-task countdown** — reads `schedule.catalog()` from Automation tasks (the `remote.schedule` service, with a `ctx.get` fallback while its namespace is not mounted yet); sessions driven by a schedule are listed even while idle, with `⏱8m / ⏱2h / ⏱3d` and a `N running · M scheduled` headline.
 - **Sessions that need your call come first** — when an agent asks a question, waits for an approval, or waits for a plan review (`pendingInteraction` = `question` / `approval` / `plan-review`), that row turns **amber**, carries a `待答 / 待批 / 待审` badge and **sorts above running rows**. Previously such a session disappeared because it was no longer running.

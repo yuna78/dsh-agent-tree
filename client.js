@@ -228,21 +228,34 @@ window.__ModuleLoader__.load({
     function buildInstances(instances, sessions, statuses, now) {
       const list = Array.isArray(instances) ? instances : [];
       const byId = sessions && sessions.byId ? sessions.byId : {};
+      const childIndex = childSessionsIndex(sessions);
       const out = [];
       for (const instance of list) {
         if (instance === null || typeof instance !== 'object') continue;
         const ports = Array.isArray(instance.ports) ? instance.ports.filter((port) => Number.isFinite(port)) : [];
         const ids = Array.isArray(instance.sessionIds) ? instance.sessionIds : [];
         const rows = [];
+        let subagents = 0;
         for (const id of ids) {
           const row = byId[id];
           if (row === undefined) continue;
+          const children = childIndex.get(id) || [];
+          subagents += children.length;
           rows.push({
             id,
             title: shortTitle(row),
             waiting: waitingKind(statuses, id),
             updatedAt: Number(row.updatedAt) || 0,
             updatedLabel: formatElapsed(Math.max(0, Math.round((now - (Number(row.updatedAt) || now)) / 1000))),
+            subagents: children.length,
+            children: children.slice(0, 6).map((childId) => ({
+              id: childId,
+              title: shortTitle(byId[childId]),
+              updatedAt: Number(byId[childId].updatedAt) || 0,
+              updatedLabel: formatElapsed(
+                Math.max(0, Math.round((now - (Number(byId[childId].updatedAt) || now)) / 1000)),
+              ),
+            })),
           });
         }
         rows.sort((left, right) => right.updatedAt - left.updatedAt);
@@ -255,12 +268,29 @@ window.__ModuleLoader__.load({
           url: ports.length > 0 ? `http://127.0.0.1:${ports[0]}/` : '',
           waiting: rows.some((row) => row.waiting !== undefined),
           count: rows.length,
+          subagents,
           unknown: ids.length - rows.length,
           rows: rows.slice(0, 6),
         });
         if (out.length >= 4) break;
       }
       return out;
+    }
+
+    /** `sessions.byId` → `parentId -> [子会话 id]`，拿它数每个会话下挂了多少 subagent。 */
+    function childSessionsIndex(sessions) {
+      const index = new Map();
+      const byId = sessions && sessions.byId ? sessions.byId : {};
+      for (const id of Object.keys(byId)) {
+        const row = byId[id];
+        const parentId = row && row.parentId;
+        if (typeof parentId !== 'string' || parentId === '') continue;
+        const bucket = index.get(parentId);
+        if (bucket === undefined) index.set(parentId, [id]);
+        else bucket.push(id);
+      }
+      for (const bucket of index.values()) bucket.sort();
+      return index;
     }
 
     /**
@@ -900,7 +930,7 @@ window.__ModuleLoader__.load({
               'span',
               { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
               instance.count > 0
-                ? `${instance.count} 个会话`
+                ? `${instance.count} 个会话${instance.subagents > 0 ? ` · ${instance.subagents} 子代理` : ''}`
                 : instance.unknown > 0
                   ? `${instance.unknown} 个会话（不在本实例）`
                   : '0 个会话',
@@ -910,14 +940,18 @@ window.__ModuleLoader__.load({
         if (!instOpen) return;
         instance.rows.forEach((row, rowIndex) => {
           const isLast = rowIndex === instance.rows.length - 1;
+          const rowKey = `${instKey}:${row.id}`;
+          const rowOpen = !collapsedNodes[rowKey];
           rows.push(
             h(
               'div',
               {
-                key: `${instKey}:${row.id}`,
+                key: rowKey,
                 className: 'dsh-agent-tree-mini-row',
                 onClick: openInstance,
-                title: `${row.title}\n${instance.label}\n${row.id}`,
+                title: `${row.title}\n${instance.label}\n${row.id}${
+                  row.subagents > 0 ? `\n${row.subagents} 个 subagent` : ''
+                }`,
                 style: {
                   display: 'flex',
                   alignItems: 'center',
@@ -928,6 +962,26 @@ window.__ModuleLoader__.load({
                 },
               },
               glyph(isLast ? '└─' : '├─'),
+              row.subagents > 0
+                ? h(
+                    'span',
+                    {
+                      onClick: (event) => {
+                        event.stopPropagation();
+                        toggle(rowKey);
+                      },
+                      style: {
+                        width: 8,
+                        flex: 'none',
+                        fontSize: 8.5,
+                        color: 'var(--dsw-alias-label-tertiary)',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                      },
+                    },
+                    rowOpen ? '▾' : '▸',
+                  )
+                : h('span', { style: { width: 8, flex: 'none' } }),
               h(Dot, {
                 color: row.waiting ? WAIT[row.waiting].color : DOT.level2,
                 active: row.waiting !== undefined,
@@ -937,6 +991,13 @@ window.__ModuleLoader__.load({
                 color: row.waiting ? WAIT[row.waiting].color : 'var(--dsw-alias-label-secondary)',
               }),
               row.waiting ? h(WaitBadge, { kind: row.waiting }) : null,
+              row.subagents > 0
+                ? h(
+                    'span',
+                    { style: { flex: 'none', fontSize: 9, color: 'var(--dsw-alias-label-tertiary)' } },
+                    `${row.subagents}子`,
+                  )
+                : null,
               h(
                 'span',
                 { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
@@ -944,6 +1005,37 @@ window.__ModuleLoader__.load({
               ),
             ),
           );
+          if (!rowOpen || row.subagents === 0) return;
+          row.children.forEach((child, childIndex2) => {
+            const childLast = childIndex2 === row.children.length - 1;
+            rows.push(
+              h(
+                'div',
+                {
+                  key: `${rowKey}:${child.id}`,
+                  className: 'dsh-agent-tree-mini-row',
+                  onClick: openInstance,
+                  title: `${child.title}\n${instance.label}\n${child.id}`,
+                  style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '2px 8px 2px 22px',
+                    cursor: 'pointer',
+                    minWidth: 0,
+                  },
+                },
+                glyph(childLast ? '└─' : '├─'),
+                h(Dot, { color: DOT.deep, active: false }),
+                clampSpan(child.title, { fontSize: 10, color: 'var(--dsw-alias-label-tertiary)' }),
+                h(
+                  'span',
+                  { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
+                  child.updatedLabel,
+                ),
+              ),
+            );
+          });
         });
       });
 

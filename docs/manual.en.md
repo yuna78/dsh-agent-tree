@@ -110,12 +110,15 @@ but the process table and the session store are shared, so the host half can rea
 - `lsof -p <pid> -Fn` shows `~/.dsh/sessions/<project>/session-<id>/` — the sessions they currently have open.
 
 ```
-▾ ● dsh :3083                     2 sessions
-├─ ● 推进 backlog 任务并设循环        1m
-└─ ● PMO                          6m
+▾ ● dsh :3083                2 sessions · 2 subagents
+├─ ● 推进 backlog 任务并设循环     1m
+└─ ▾ ● PMO                 2子   6m
+   ├─ ● 巡检流水线               4m
+   └─ ● 汇总日报                 7m
 ```
 
 - Titles come from the shared session store, so they match what that instance shows; the right side is "last touched".
+- `N子` is how many subagents hang off that session (counted via `parentId` in the session table); `▸` expands up to 6 child rows.
 - Click the instance row / a session row to open that port in a new tab (no deep link to the exact session).
 - Session ids missing from this instance's store (e.g. another `DSH_HOME`) are only counted in the tooltip.
 - At most 4 instances, 6 rows each.
