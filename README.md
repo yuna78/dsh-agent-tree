@@ -2,7 +2,7 @@
 
 简体中文 · [English](README.en.md)
 
-![Agent Tree：一张 288px 的常驻小卡，把 dsh、workspace、对话、subagent 画成真树](docs/assets/screenshot.png)
+![Agent Tree：一张 288px 的常驻小卡，把 dsh、workspace、对话、subagent 画成真树](docs/assets/screenshot.png?v=0.1.1)
 
 **Agent Tree** 是 DeepSeek Harness（DSH）Web 端的可观测性小插件：右下角一张 **288px 宽的浮动卡**，
 用 `git log --graph` 那种连接线，把 `dsh → workspace → 对话 → subagent → 孙代理` 实时画出来。只显示

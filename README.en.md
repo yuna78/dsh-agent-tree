@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · English
 
-![Agent Tree: a 288px floating card that draws the dsh instance, workspaces, conversations and subagents as a real tree](docs/assets/screenshot.png)
+![Agent Tree: a 288px floating card that draws the dsh instance, workspaces, conversations and subagents as a real tree](docs/assets/screenshot.png?v=0.1.1)
 
 **Agent Tree** is a small observability plugin for the DeepSeek Harness (DSH) Web UI: a **288px wide floating card**
 in a corner that draws `dsh → workspace → conversation → subagent → grandchild` as a live tree with
