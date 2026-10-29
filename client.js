@@ -599,10 +599,15 @@ window.__ModuleLoader__.load({
       };
 
       const rows = [];
+      const processList = Array.isArray(processes) ? processes : [];
 
-      // 根节点：dsh 实例（这样层级是 dsh → workspace → 对话 → subagent，4 层）
+      // 根节点：dsh 实例。workspace 和外部 claude/codex 进程都挂在这一层，同一套行规格。
       const rootKey = 'root';
       const rootOpen = !collapsedNodes[rootKey];
+      const branches = [
+        ...tree.groups.map((group) => ({ type: 'group', key: `g:${group.id}`, group })),
+        ...processList.map((proc) => ({ type: 'proc', key: `proc:${proc.pid}`, proc })),
+      ];
       rows.push(
         h(
           'div',
@@ -638,106 +643,44 @@ window.__ModuleLoader__.load({
           h(
             'span',
             { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
-            `${tree.groups.length} 个 workspace`,
+            `${branches.length} 个分支`,
           ),
         ),
       );
 
-      if (rootOpen) tree.groups.forEach((group, groupIndex) => {
-        const isLastGroup = groupIndex === tree.groups.length - 1;
-        const groupConnector = isLastGroup ? '└─' : '├─';
-        const groupPrefix = isLastGroup ? '   ' : '│  ';
-        const groupKey = `g:${group.id}`;
-        const groupOpen = !collapsedNodes[groupKey];
-        rows.push(
-          h(
-            'div',
-            {
-              key: groupKey,
-              className: 'dsh-agent-tree-mini-row',
-              onClick: () => toggle(groupKey),
-              title: group.label,
-              style: {
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '4px 8px 2px 12px',
-                cursor: 'pointer',
-                minWidth: 0,
-              },
-            },
-            glyph(groupConnector),
-            h(
-              'span',
-              {
-                onClick: (event) => {
-                  event.stopPropagation();
-                  toggle(groupKey);
-                },
-                style: {
-                  width: 8,
-                  flex: 'none',
-                  fontSize: 8.5,
-                  color: 'var(--dsw-alias-label-tertiary)',
-                  textAlign: 'center',
-                },
-              },
-              groupOpen ? '▾' : '▸',
-            ),
-            clampSpan(group.label, { fontSize: 11, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }),
-            h(
-              'span',
-              { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
-              String(group.items.length),
-            ),
-          ),
-        );
-        if (groupOpen) renderNodes(group.items, groupPrefix, 1, rows, '');
-      });
+      if (rootOpen) branches.forEach((branch, branchIndex) => {
+        const isLastBranch = branchIndex === branches.length - 1;
+        const branchConnector = isLastBranch ? '└─' : '├─';
+        const branchPrefix = isLastBranch ? '   ' : '│  ';
 
-      if (Array.isArray(processes) && processes.length > 0) {
-        rows.push(
-          h('div', {
-            key: 'proc-divider',
-            style: {
-              margin: '5px 10px 2px',
-              borderTop: '1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.16))',
-            },
-          }),
-        );
-        processes.forEach((proc, procIndex) => {
-          const isLastProc = procIndex === processes.length - 1;
-          const procConnector = isLastProc ? '└─' : '├─';
-          const procPrefix = isLastProc ? '   ' : '│  ';
-          const procKey = `proc:${proc.pid}`;
-          const children = Array.isArray(proc.children) ? proc.children : [];
-          const expanded = !collapsedNodes[procKey];
+        if (branch.type === 'group') {
+          const group = branch.group;
+          const groupOpen = !collapsedNodes[branch.key];
           rows.push(
             h(
               'div',
               {
-                key: procKey,
+                key: branch.key,
                 className: 'dsh-agent-tree-mini-row',
-                onClick: () => {
-                  if (children.length === 0) return;
-                  toggle(procKey);
-                },
-                title: `${proc.kind} · pid ${proc.pid}\n${proc.cwd || ''}${
-                  children.length > 0 ? `\n${children.length} 个子进程` : ''
-                }`,
+                onClick: () => toggle(branch.key),
+                title: group.label,
                 style: {
                   display: 'flex',
                   alignItems: 'center',
                   gap: 4,
-                  padding: '2px 8px 2px 12px',
-                  cursor: children.length > 0 ? 'pointer' : 'default',
+                  padding: '4px 8px 2px 12px',
+                  cursor: 'pointer',
                   minWidth: 0,
                 },
               },
-              glyph(procConnector),
+              glyph(branchConnector),
               h(
                 'span',
                 {
+                  onClick: (event) => {
+                    event.stopPropagation();
+                    toggle(branch.key);
+                  },
                   style: {
                     width: 8,
                     flex: 'none',
@@ -746,54 +689,109 @@ window.__ModuleLoader__.load({
                     textAlign: 'center',
                   },
                 },
-                children.length === 0 ? '' : expanded ? '▾' : '▸',
+                groupOpen ? '▾' : '▸',
               ),
-              h(Dot, { color: KIND_DOT[proc.kind] || DOT.deep, active: true }),
-              clampSpan(proc.kind, { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' }),
-              clampSpan(proc.label || `pid ${proc.pid}`, {
-                fontSize: 9.5,
+              clampSpan(group.label, { fontSize: 11, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }),
+              h(
+                'span',
+                { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
+                String(group.items.length),
+              ),
+            ),
+          );
+          if (groupOpen) renderNodes(group.items, branchPrefix, 1, rows, '');
+          return;
+        }
+
+        const proc = branch.proc;
+        const children = Array.isArray(proc.children) ? proc.children : [];
+        const procOpen = !collapsedNodes[branch.key];
+        const childGroups = groupProcessChildren(children);
+        rows.push(
+          h(
+            'div',
+            {
+              key: branch.key,
+              className: 'dsh-agent-tree-mini-row',
+              onClick: () => {
+                if (children.length === 0) return;
+                toggle(branch.key);
+              },
+              title: `${proc.kind} · pid ${proc.pid}\n${proc.cwd || ''}${
+                children.length > 0 ? `\n${children.length} 个子进程` : ''
+              }`,
+              style: {
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '3px 8px 3px 12px',
+                cursor: children.length > 0 ? 'pointer' : 'default',
+                minWidth: 0,
+              },
+            },
+            glyph(branchConnector),
+            h(
+              'span',
+              {
+                style: {
+                  width: 8,
+                  flex: 'none',
+                  fontSize: 8.5,
+                  color: 'var(--dsw-alias-label-tertiary)',
+                  textAlign: 'center',
+                },
+              },
+              children.length === 0 ? '' : procOpen ? '▾' : '▸',
+            ),
+            h(Dot, { color: KIND_DOT[proc.kind] || DOT.deep, active: true }),
+            clampSpan(proc.kind, {
+              flex: 'none',
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--dsw-alias-label-primary)',
+            }),
+            clampSpan(proc.label || `pid ${proc.pid}`, {
+              fontSize: 10.5,
+              color: 'var(--dsw-alias-label-secondary)',
+            }),
+            h(
+              'span',
+              { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)' } },
+              `${formatElapsed(proc.elapsedSeconds)}${proc.cpu >= 1 ? ` ${Math.round(proc.cpu)}%` : ''}`,
+            ),
+          ),
+        );
+        if (!procOpen || childGroups.length === 0) return;
+        childGroups.forEach((child, childIndex) => {
+          const isLastChild = childIndex === childGroups.length - 1;
+          rows.push(
+            h(
+              'div',
+              {
+                key: `${branch.key}:${child.label}`,
+                title: child.count > 1 ? `${child.count} 个 ${child.label} 子进程` : child.label,
+                style: {
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '2px 8px 2px 12px',
+                  minWidth: 0,
+                },
+              },
+              glyph(`${branchPrefix}${isLastChild ? '└─' : '├─'}`),
+              clampSpan(child.count > 1 ? `${child.label} ×${child.count}` : child.label, {
+                fontSize: 10.5,
                 color: 'var(--dsw-alias-label-tertiary)',
               }),
               h(
                 'span',
-                { style: { flex: 'none', fontSize: 8.5, color: 'var(--dsw-alias-label-tertiary)' } },
-                `${formatElapsed(proc.elapsedSeconds)}${proc.cpu >= 1 ? ` ${Math.round(proc.cpu)}%` : ''}`,
+                { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)', opacity: 0.8 } },
+                formatElapsed(child.elapsedSeconds),
               ),
             ),
           );
-          if (!expanded || children.length === 0) return;
-          const childGroups = groupProcessChildren(children);
-          childGroups.forEach((child, childIndex) => {
-            const isLastChild = childIndex === childGroups.length - 1;
-            rows.push(
-              h(
-                'div',
-                {
-                  key: `${procKey}:${child.label}`,
-                  title: child.count > 1 ? `${child.count} 个 ${child.label} 子进程` : child.label,
-                  style: {
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '1px 8px 1px 12px',
-                    minWidth: 0,
-                  },
-                },
-                glyph(`${procPrefix}${isLastChild ? '└─' : '├─'}`),
-                clampSpan(child.count > 1 ? `${child.label} ×${child.count}` : child.label, {
-                  fontSize: 9,
-                  color: 'var(--dsw-alias-label-tertiary)',
-                }),
-                h(
-                  'span',
-                  { style: { flex: 'none', fontSize: 8.5, color: 'var(--dsw-alias-label-tertiary)', opacity: 0.8 } },
-                  formatElapsed(child.elapsedSeconds),
-                ),
-              ),
-            );
-          });
         });
-      }
+      });
 
       const visible = rows.slice(0, MAX_ROWS);
       const stats = tree.stats || { total: 0, subagents: 0, runningLive: 0 };

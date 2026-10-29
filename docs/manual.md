@@ -13,10 +13,9 @@
 │ │  │  │  └─ ● Run unit tests              9s     │ ← 孙代理（紫点）
 │ │  │  └─ ● Write migration plan          31s     │
 │ │  └─   Fix flaky login test      ⏱2h  v4.1-flash │ ← 有定时、当前空闲
-│ └─ ▾ my-repo                                 1  │
-│    └─ ● Triage CI failures        v4.1-pro       │
-│ ────────────────────────────────────────────────  │
-│ ├─ ▾ ● claude  proj-alpha              12m 3%    │ ← 本机外部进程
+│ ├─ ▾ my-repo                                 1  │
+│ │  └─ ● Triage CI failures        v4.1-pro       │
+│ ├─ ▾ ● claude  proj-alpha              12m 3%    │ ← 本机外部 agent（和 workspace 同级）
 │ │  └─ computer use ×2                    41m     │ ← 它的子进程（按种类归组）
 │ └─ ▾ ● codex   ChatGPT              69h35m 2%    │
 │    ├─ MCP ×2                             2h50m   │
@@ -86,22 +85,23 @@ DSH 的 Automation tasks（`schedule.catalog()`）驱动的是「间歇式工作
 到点自己跑一次。卡片会把这些会话**即使不在跑也列出来**，右侧 `⏱` 是下一次触发时间；
 点它同样能跳过去看上一次跑出来的东西。
 
-## 6. 底部外部进程段
+## 6. 本机外部 agent（和 workspace 同级）
 
-宿主半部的只读探测，列出本机正在跑的 `claude` / `codex` CLI：
+宿主半部的只读探测，列出本机正在跑的 `claude` / `codex` CLI。它们不是单独的页脚段，而是
+**挂在 `dsh` 下面的分支，和 workspace 完全同一套行规格**（同样的字号、同样的缩进、同样的折叠）：
 
 ```
 ├─ ● claude  proj-alpha        12m 3%
-└─ ● codex   my-repo            3m
+└─ ● codex   ChatGPT        69h35m 2%
 ```
 
 - `label` 的取值顺序：进程真实 cwd 的目录名 → 命令行里的 `--cwd/--cd/-C` → `ChatGPT`（桌面端 backend）→ 空。
 - 只显示前 8 条；结果缓存 3 秒；接口需要登录态（未登录 401）。
-- 这一段的目的是「我在 DSH 里干活时，本机还有没有别的 agent 在偷偷跑」。
+- 目的是「我在 DSH 里干活时，本机还有没有别的 agent 在偷偷跑」；点这一行可折叠子树。
 
-## 6.5 外部进程也是树
+### 6.1 外部 agent 的子进程
 
-`claude` / `codex` 是根，它们的子进程按 `ppid` 挂成子树；同一种子进程会归组成一行：
+`claude` / `codex` 的子进程按 `ppid` 挂成子树；同一种子进程会归组成一行：
 
 ```
 ├─ ▾ ● codex  ChatGPT        69h35m 2%

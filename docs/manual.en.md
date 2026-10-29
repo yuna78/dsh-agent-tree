@@ -13,10 +13,9 @@
 │ │  │  │  └─ ● Run unit tests              9s     │ ← grandchild (violet)
 │ │  │  └─ ● Write migration plan          31s     │
 │ │  └─   Fix flaky login test      ⏱2h  v4.1-flash │ ← scheduled, currently idle
-│ └─ ▾ my-repo                                 1  │
-│    └─ ● Triage CI failures        v4.1-pro       │
-│ ────────────────────────────────────────────────  │
-│ ├─ ▾ ● claude  proj-alpha              12m 3%    │ ← local external process
+│ ├─ ▾ my-repo                                 1  │
+│ │  └─ ● Triage CI failures        v4.1-pro       │
+│ ├─ ▾ ● claude  proj-alpha              12m 3%    │ ← external agent (a workspace peer)
 │ │  └─ computer use ×2                    41m     │ ← its children, grouped by kind
 │ └─ ▾ ● codex   ChatGPT              69h35m 2%    │
 │    ├─ MCP ×2                             2h50m   │
@@ -84,9 +83,11 @@ says it was inherited. So every row can answer "which model is this".
 DSH Automation tasks (`schedule.catalog()`) drive intermittent sessions: idle most of the time, they fire on a timer.
 Those sessions are listed even while idle, with `⏱` showing the next fire time — clicking jumps to them as usual.
 
-## 6. External process block
+## 6. Local external agents (peers of workspaces)
 
-Read-only probe from the host half, listing running `claude` / `codex` CLIs on this machine:
+Read-only probe from the host half, listing running `claude` / `codex` CLIs on this machine. They are not a
+separate footer block: they are **branches under `dsh`, with exactly the same row spec as workspaces**
+(same font size, indent and collapse behaviour):
 
 ```
 ├─ ● claude  proj-alpha        12m 3%
@@ -97,9 +98,9 @@ Read-only probe from the host half, listing running `claude` / `codex` CLIs on t
 - Max 8 rows, 3s cache on the host, requires a logged-in session (401 otherwise).
 - Purpose: "while I work inside DSH, is some other agent also running on this machine?"
 
-## 6.5 External processes are a tree too
+### 6.1 Children of an external agent
 
-`claude` / `codex` are roots; their children hang under them by `ppid`, grouped by kind:
+`claude` / `codex` children hang under them by `ppid`, grouped by kind:
 
 ```
 ├─ ▾ ● codex  ChatGPT        69h35m 2%
