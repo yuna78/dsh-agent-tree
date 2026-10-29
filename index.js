@@ -1,8 +1,15 @@
 /**
- * `@local/dsh-agent-tree` — 宿主半部。
+ * `dsh-plugin-agent-tree` — 宿主半部（v0.1.0）。
  *
  * 唯一职责：给浏览器端一个只读的小接口 `GET /local/dsh-agent-tree/processes`，
- * 报告本机上正在跑的 claude / codex CLI 进程（浏览器自己看不到进程表）。
+ * 报告本机上正在跑的 claude / codex CLI 进程（浏览器自己看不到进程表），
+ * 以及 codex 自己的会话线程：
+ *   - 进程树：`ps` + `lsof` 读 pid / ppid / cwd / etime，按 ppid 归组；
+ *   - codex 会话：读 `~/.codex/sessions/…/rollout-*.jsonl` 的 `session_meta`
+ *     头（按 `parent_thread_id` 还原 subagent 线程树，首条真实用户消息当行名）。
+ *
+ * 只读本机、不联网、不外发；所有读取都有超时和缓存，任何一步失败都只是少一行，
+ * 不影响 DSH 启动。
  *
  * 设计原则：绝不因为这一半出错而影响 DSH 启动。
  *   - 路由注册失败只 warn，不影响其它插件；

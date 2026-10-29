@@ -1,9 +1,16 @@
 /**
- * `@local/dsh-agent-tree` — 客户端半部（v0.9：模型 + 定时任务 + 外部进程）。
+ * `dsh-plugin-agent-tree` — 客户端半部（v0.1.0）。
  *
- * 内容：workspace → 对话 → subagent（可再下钻）的真树，git-graph 风格连接线；
- * 每行左侧显示该会话在用的模型；有定时任务的会话带 ⏱ 倒计时；卡片底部额外
- * 列出本机正在跑的 claude / codex CLI 进程（数据来自宿主半部的只读小接口）。
+ * 内容：一张常驻角落的迷你 agent 树。
+ *   - 顶层是「本机 agent 列表」：`dsh`（本实例）与本机 `claude` / `codex` 进程同级；
+ *   - `dsh` 下面 workspace → 对话 → subagent（可再下钻），git-graph 风格连接线；
+ *   - 等你拍板的会话（待答/待批/待审）琥珀色置顶；定时任务的会话带 ⏱ 倒计时；
+ *   - 每行右侧是该会话正在用的模型；
+ *   - codex 那行下面挂它自己的 subagent 线程（读 rollout 头，见宿主半部），
+ *     再下面是它拉起的 MCP / computer use 等工具进程。
+ *
+ * 只读：所有数据来自客户端已有的 session store / projection，加上宿主半部的
+ * 只读小接口 `GET /local/dsh-agent-tree/processes`。
  *
  * 视觉约定：
  *   - 顶层对话：绿色圆点
