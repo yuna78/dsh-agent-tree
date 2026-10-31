@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · English
 
-![Agent Tree: expanded it is a 288px card, collapsed a capsule — and skins really grow outside the dock](docs/assets/screenshot-capsule.png?v=0.1.3)
+![Agent Tree: expanded it is a 288px card, collapsed a capsule — and skins really grow outside the dock](docs/assets/screenshot-capsule.png?v=0.1.4)
 
 **Agent Tree** is a small observability plugin for the DeepSeek Harness (DSH) Web UI: a **288px wide floating card**
 in a corner that draws `dsh → workspace → conversation → subagent → grandchild` as a live tree with
@@ -13,14 +13,14 @@ It solves one concrete annoyance: with many conversations open you have to click
 subagents are doing. The DSH sidebar lists conversations, not agent lineage. This card shows **who is running,
 at which depth, on which model, for how long, and when its next scheduled run fires**.
 
-![Inside the DSH page: a small always-on card in the bottom-right corner, with the sakura branch growing outside the dock (sample data)](docs/assets/screenshot-app.png?v=0.1.3)
+![Inside the DSH page: a small always-on card in the bottom-right corner, with the sakura branch growing outside the dock (sample data)](docs/assets/screenshot-app.png?v=0.1.4)
 
 ## Features
 
 - **The top level is an agent list** — `dsh` (this instance) and the local `claude` / `codex` processes are **siblings**, each expanding its own tree: `dsh → workspace → conversation → subagent → grandchild`, with `├─ └─ │` indentation and `▾ / ▸` collapse.
 - **Plugin-dock style window header** — plugin icon + the name **Agent Tree Dock** on the left, a status subline (`1 待处理 · 5 在跑 · 3 定时`) underneath, and three ghost icon buttons on the right: **paint drop** (skins), **spinner** (update check) and **—** (minimise). They sit in a soft grey at rest and only pick up a faint tint on hover.
 - **Always-on entry (capsule)** — idle collapses to a round capsule `🌳 Agent Tree Dock 1 待处理 🤖5 ⏰3 ⌃`. Each counter appears only when non-zero: amber `N 待处理` (waiting for your call), green robot `🤖N` (N agents running), monochrome clock `⏰N` (N scheduled tasks). When fully idle it is just icon + name + chevron. Click the capsule (or `Enter` / `Space`) to expand, drag to move; manual collapse wins over auto-expand.
-- **Skins (DIY, old-QQ style)** — a paint-drop button switches palettes: **Default / Sakura / Whale girl** ship built in, each with card
+- **Skins (DIY, old-QQ style)** — a little T-shirt button switches skins: **Default / Sakura / Whale girl / Whale girl · chibi / Bamboo grove / Orchid** ship built in, each with card
   surface, header banner, redrawn sakura / whale icons, frame and capsule colours plus dark-mode values. Sakura and Whale girl also carry
   **real transparent illustration assets** (a whole sakura branch, a baby whale in its splash) rendered *outside* the card and *behind* it,
   so they look like they grow out of the dock; the collapsed capsule gets a small sprig too. Adding your own needs no code changes: register
@@ -71,7 +71,7 @@ dsh plugin --profile web add "$PWD"
 
 ## Reading the card
 
-![Collapsed: a round capsule — click to expand; the prominent minimize button sits in the card header](docs/assets/screenshot-capsule.png?v=0.1.3)
+![Collapsed: a round capsule — click to expand; the prominent minimize button sits in the card header](docs/assets/screenshot-capsule.png?v=0.1.4)
 
 | What you see | Meaning |
 |---|---|
@@ -92,7 +92,7 @@ Click a row to jump to that session; drag the header to move the card; click `�
 
 ## Skins
 
-![Three built-in skins: default / sakura / whale girl](docs/assets/screenshot-skins.png?v=0.1.3)
+![Six built-in skins: default / sakura / whale girl / whale girl · chibi / bamboo / orchid](docs/assets/screenshot-skins.png?v=0.1.4)
 
 Left of the minimise button in the header there is a **palette button**. It opens the built-in skins:
 
@@ -101,6 +101,9 @@ Left of the minimise button in the header there is a **palette button**. It open
 | Default | follows the DSH theme | plain white / dark card, no decoration |
 | Sakura | pink + rose | pink banner on the header, sakura icon, rose border / shadow, level-2/3 dots turn pink / violet |
 | Whale girl | DeepSeek blue + sea gradient | blue banner, whale icon, blue-tinted text and counters |
+| Whale girl · chibi | sky blue + soft pink | hand-drawn chibi girl (twin tails, whale-tail hairpin, sailor collar) **peeks over the top-right corner**, rides on the capsule |
+| Bamboo grove | leaf green + bamboo | watercolour bamboo; **two stalks grow out of the left and right edges**, leaves beyond the frame |
+| Orchid | lavender + pink | orchid clumps; **one peeks over the top-right, one grows out of the bottom-left** |
 
 The choice is stored in `localStorage: dsh-agent-tree:skin` and the collapsed capsule follows it too (with a small decoration).
 To build your own (or just tweak a few colours), register CSS variables plus a `decor` list on `window.__DSH_AGENT_TREE_SKINS__` —

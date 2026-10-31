@@ -111,6 +111,11 @@ const CLIENT_MARKERS = [
   ['NPM_LATEST_URL', '检查更新接口'],
   ['renderUpdatePanel', '检查更新面板'],
   ['PLUGIN_VERSION', '客户端版本号'],
+  ["id: 'whale-girl'", '鲸鱼娘·小姑娘皮肤'],
+  ["id: 'bamboo'", '竹林皮肤'],
+  ["id: 'orchid'", '兰花皮肤'],
+  ['SKIN_DECOR', '外框装饰素材表'],
+  ['whaleGirl', '小姑娘装饰素材 key'],
 ];
 for (const [marker, label] of CLIENT_MARKERS) {
   if (!client.includes(marker)) fail(`client.js 少了${label}（${marker}）`);

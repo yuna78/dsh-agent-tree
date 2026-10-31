@@ -33,7 +33,7 @@
 | `空闲 · 2 个定时待命` | nothing running, only scheduled tasks pending |
 | `🌳 Agent Tree Dock 1 待处理 🤖5 ⏰3 ⌃` | collapsed: a round capsule with three counters — waiting / running agents / scheduled tasks; zero counters are hidden |
 | the “—” button in the header / the capsule itself | manual collapse / expand; manual wins over auto-collapse |
-| the paint-drop button in the header | open the skin list and switch skins (see 1.6) |
+| the little T-shirt button in the header | open the skin list and switch skins (see 1.6) |
 | the spinner button in the header | check for a plugin update — only goes online on click (see 1.7) |
 
 Auto-collapse rule: collapse when `running === 0 && scheduled === 0`; expand automatically as soon as work appears
@@ -72,13 +72,16 @@ The `dsh` root row collapses every workspace at once; its right side shows the w
 
 ## 1.6 Skins
 
-Left of the “—” in the header there is a paint-drop button. It opens the built-in skins:
+Left of the “—” in the header there is a little T-shirt button. It opens the six built-in skins:
 
 | Skin | Palette | Details |
 |---|---|---|
 | Default | follows the DSH theme | plain white / dark card, no decoration |
 | Sakura | pink + rose | pink banner, redrawn sakura icon, rose border / shadow, level-2/3 dots turn pink / violet; a whole sakura branch grows outside the card |
-| Whale girl | DeepSeek blue + sea gradient | blue banner, redrawn whale icon, blue-tinted text and counters; a baby whale peeks out of the top-right corner |
+| Whale girl | DeepSeek blue + sea gradient | blue banner, redrawn whale icon, blue-tinted labels; a baby whale peeks over the top-right |
+| Whale girl · chibi | sky blue + soft pink | a hand-drawn chibi girl (twin tails, whale-tail hairpin, sailor collar) peeks over the top-right, and rides on the capsule |
+| Bamboo grove | leaf green + bamboo | watercolour bamboo grows out of both side edges, green banner |
+| Orchid | lavender + pink | one clump peeks over the top-right, one grows out of the bottom-left, deep-purple text |
 
 - Picking one applies immediately; the choice lives in `localStorage: dsh-agent-tree:skin`;
 - Sakura / Whale girl ship **frame decorations**: transparent assets rendered outside and behind the card, so only the part sticking
@@ -99,7 +102,7 @@ The middle ghost button in the header is the **spinner**:
 |---|---|
 | idle | a faint circular arrow; a small dot sits on the button when a newer version is known |
 | clicked | the icon spins and a small panel opens under the header |
-| up to date | `✓ 已是最新 · v0.1.3` plus “checked npm registry just now / N minutes ago” |
+| up to date | `✓ 已是最新 · v0.1.4` plus “checked npm registry just now / N minutes ago” |
 | update found | `↑ 发现新版本 vX` with a one-click copy of the upgrade command |
 | failure | a red hint (“browser can't reach the npm registry”) and a retry |
 
@@ -239,7 +242,7 @@ The row is named after **the first real request of that codex session** (skippin
 | click `▾/▸` | collapse / expand that node's children |
 | drag the header | move the card; position saved in `localStorage: dsh-agent-tree:pos` |
 | click the “—” in the header / the capsule | collapse to a capsule / expand the whole card |
-| click the paint-drop button in the header | open the skin list and pick a skin |
+| click the little T-shirt button in the header | open the skin list and pick a skin |
 
 ## 9. Refresh cadence
 

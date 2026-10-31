@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-agent-tree",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "DSH Web mini agent tree: a tiny always-on floating card showing workspace → conversation → subagent as a live tree, with per-row model, scheduled-task countdowns, and external claude/codex CLI processes.",
   "keywords": [
     "dsh",

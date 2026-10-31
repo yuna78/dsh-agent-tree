@@ -5,7 +5,7 @@
 The same agent tree can wear different skins: palette, card surface, a banner on the header layer, icon,
 frame (border / shadow), and capsule styling all come from one skin object. Three are built in; you can add your own.
 
-![Three built-in skins: default / sakura / whale](assets/screenshot-skins.png?v=0.1.3)
+![Six built-in skins: default / sakura / whale / whale girl / bamboo / orchid](assets/screenshot-skins.png?v=0.1.4)
 
 ## Built-in skins
 
@@ -14,14 +14,17 @@ frame (border / shadow), and capsule styling all come from one skin object. Thre
 | `default` | Default | follows the DSH theme (white card / dark card), touches no token |
 | `sakura` | Sakura | pink surface + rose border/shadow, pink banner, redrawn sakura icon, level-2/3 dots turn pink/violet; **a whole sakura branch grows out of the top-left / bottom-left corner**, with a sprig on the capsule |
 | `whale` | Whale girl | DeepSeek-blue surface + sea-gradient banner, redrawn whale icon, blue-tinted labels; **a baby whale peeks out of its splash at the top-right**, waves at the bottom-left |
+| `whale-girl` | Whale girl · chibi | Sky blue + soft pink banner; a hand-drawn chibi girl (twin tails, whale-tail hairpin, sailor collar) **peeks over the top-right corner**, and rides on the capsule |
+| `bamboo` | Bamboo grove | Watercolour bamboo + leaf negative space, green banner; **two bamboo stalks grow out of the right and left edges** |
+| `orchid` | Orchid | Lavender orchid + pink-tinted banner, deep-purple text; **one clump peeks over the top-right, one grows out of the bottom-left** |
 
 Each skin carries its own dark values and follows DSH's `body[data-ds-dark-theme]` automatically:
 
-![The three skins in dark mode](assets/screenshot-skins-dark.png?v=0.1.3)
+![The six skins in dark mode](assets/screenshot-skins-dark.png?v=0.1.4)
 
 ## Switching
 
-1. Expand the card and click the **paint-drop button** in the header (first of the three ghost buttons, left of the “—”);
+1. Expand the card and click the **little T-shirt button** in the header (first of the three ghost buttons, left of the “—”);
 2. A skin list opens under the header: the swatch shows its palette, the row shows name + one-line description,
    the active one has a ✓;
 3. Click a skin to apply. The choice is stored in `localStorage: dsh-agent-tree:skin`;

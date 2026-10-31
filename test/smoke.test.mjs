@@ -733,10 +733,10 @@ test('buildInstances 用实时状态优先于「最近活动」的猜测', () =>
   assert.equal(views[0].waiting, true);
 });
 
-test('皮肤：内置三套 + DIY 注册，非法 id / 变量被挡掉', () => {
+test('皮肤：内置六套 + DIY 注册，非法 id / 变量被挡掉', () => {
   const { getSkins, sanitizeSkin, SKINS } = clientModule.__test;
   const ids = SKINS.map((skin) => skin.id);
-  assert.deepEqual(ids, ['default', 'sakura', 'whale']);
+  assert.deepEqual(ids, ['default', 'sakura', 'whale', 'whale-girl', 'bamboo', 'orchid']);
   assert.equal(new Set(ids).size, ids.length, 'id 唯一');
 
   assert.equal(sanitizeSkin(null), null);
