@@ -78,15 +78,20 @@ jobs:
           echo "内容一致 ✓ 文件 $(find /tmp/cmp/ours -type f | wc -l) 个"
 
       - name: 挂到 Release（已有同名 asset 就覆盖）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -z "$TAG" ]; then TAG="$(gh release view --json tagName -q .tagName)"; fi
           gh release upload "$TAG" ./*.tgz --clobber
-          echo "https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename ./*.tgz)"
+          TGZ="$(ls ./*.tgz | head -1)"
+          echo "https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename "$TGZ")"
 
       - name: 写出可直接安装的地址
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -z "$TAG" ]; then TAG="$(gh release view --json tagName -q .tagName)"; fi
-          URL="https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename ./*.tgz)"
+          URL="https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename "$(ls ./*.tgz | head -1)")"
           echo "### 安装（tarball 直连）" >> "$GITHUB_STEP_SUMMARY"
           echo '```sh' >> "$GITHUB_STEP_SUMMARY"
           echo "dsh plugin --profile web add $URL" >> "$GITHUB_STEP_SUMMARY"
