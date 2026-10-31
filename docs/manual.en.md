@@ -102,7 +102,7 @@ The middle ghost button in the header is the **spinner**:
 |---|---|
 | idle | a faint circular arrow; a small dot sits on the button when a newer version is known |
 | clicked | the icon spins and a small panel opens under the header |
-| up to date | `✓ 已是最新 · v0.1.4` plus “checked npm registry just now / N minutes ago” |
+| up to date | `✓ 已是最新 · v0.1.5` plus “checked npm registry just now / N minutes ago” |
 | update found | `↑ 发现新版本 vX` with a one-click copy of the upgrade command |
 | failure | a red hint (“browser can't reach the npm registry”) and a retry |
 

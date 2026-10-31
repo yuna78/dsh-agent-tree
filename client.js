@@ -17,7 +17,7 @@
  *   - 第 2 层 subagent：蓝色圆点
  *   - 第 3 层及更深：紫色圆点（已结束的用灰点）
  *
- * 数据来源（官方 0.2.1-rc.2 客户端契约）：
+ * 数据来源（官方 0.2.0-rc.2 / 0.2.1-rc.2 客户端契约，两者逐项比对一致）：
  *   - `useSessions(s => s)` → { ids, byId }
  *   - `useSessionStatus(map => map)`，没有 global props 时自己订阅
  *     `ctx.remote.$on('api-session/status', (sessionId, running) => …)`
@@ -48,7 +48,7 @@ window.__ModuleLoader__.load({
     const INSTANCE_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 
     /** 客户端半部的版本；必须和 package.json 的 version 一致（verify/smoke.mjs 会校验）。 */
-    const PLUGIN_VERSION = '0.1.4';
+    const PLUGIN_VERSION = '0.1.5';
     /** 检查更新：只在用户点按钮时请求一次 npm registry（公开、只读、带 CORS 的 GET）。 */
     const NPM_PACKAGE_NAME = 'dsh-plugin-agent-tree';
     const NPM_LATEST_URL = 'https://registry.npmjs.org/dsh-plugin-agent-tree/latest';

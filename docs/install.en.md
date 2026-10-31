@@ -11,11 +11,11 @@ DSH profile and shows up as a small floating card in a corner of the DSH Web UI.
 |---|---|---|
 | Node.js | `^22.19` or `≥ 24` | same as the DSH runtime |
 | pnpm | 10+ | DSH manages profile dependencies with pnpm |
-| DSH | `≥ 0.2.1-rc.2 < 0.3.0` | verified on `0.2.1-rc.2`, npm-distributed build |
+| DSH | `≥ 0.2.0-rc.2 < 0.3.0` | verified on `0.2.0-rc.2` and `0.2.1-rc.2`, npm-distributed build |
 | An LLM provider | — | the plugin needs no key itself, but you need sessions to observe |
 
 ```sh
-npm i -g @deepseek-ai/dsh@0.2.1-rc.2
+npm i -g @deepseek-ai/dsh@latest   # only if you have none yet; 0.2.0-rc.2 / 0.2.1-rc.x can stay as they are
 dsh --version
 ```
 

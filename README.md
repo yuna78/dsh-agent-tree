@@ -56,7 +56,7 @@
 
 ## 3 分钟安装
 
-前置：Node.js `^22.19 或 ≥24`（与 DSH 运行时一致）、pnpm 10+、DSH `≥ 0.2.1-rc.2 < 0.3`（已验证 `0.2.1-rc.2`）。
+前置：Node.js `^22.19 或 ≥24`（与 DSH 运行时一致）、pnpm 10+、DSH `≥ 0.2.0-rc.2 < 0.3`（`0.2.0-rc.2` 与 `0.2.1-rc.2` 都实测过）。
 
 ```sh
 # 1) 建一个专用 profile（也可以装到现有的 web profile）
@@ -166,7 +166,7 @@ dsh plugin --profile web add "$PWD"
 
 | 项目 | 范围 |
 |---|---|
-| DSH | `>= 0.2.1-rc.2 < 0.3.0`（已验证 `0.2.1-rc.2`，Web profile） |
+| DSH | `>= 0.2.0-rc.2 < 0.3.0`（`0.2.0-rc.2` / `0.2.1-rc.2` 实测，Web profile；放宽到整条 0.2.x 预发布线） |
 | Node.js | `^22.19.0 \|\| >= 24.0.0` |
 | 平台 | DSH Web（客户端座位 `shell.overlay`）；外部进程段 macOS/Linux |
 

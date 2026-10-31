@@ -67,6 +67,76 @@ if (!pkg.peerDependencies || !pkg.peerDependencies['@deepseek-ai/dsh']) {
 if (pkg.peerDependencies && pkg.peerDependencies['@deepseek-ai/dsh'] && !/-rc\./.test(pkg.peerDependencies['@deepseek-ai/dsh'])) {
   warn('peer 范围里没有预发布分支：DSH 还在 -rc 线时会被静默排除');
 }
+
+// ---- DSH 版本门：两条线各查各的，所以两处范围必须同步 ----
+//   DSH 0.2.0-rc.2：evaluatePluginCompatibility 只读 peerDependencies，engines.dsh 被忽略；
+//   DSH 0.2.1+：     反过来只读 engines.dsh，peer 不再参与。
+// 只放宽一处 = 另一条线照样装不上，因此这里把「两处相等 + 覆盖 0.2.0-rc.2～0.2.x」钉死。
+const DSH_RANGE = '>=0.2.0-rc.2 <0.3.0';
+if (pkg.engines?.dsh !== DSH_RANGE) {
+  fail(`engines.dsh 应为 ${DSH_RANGE}（现在是 ${pkg.engines?.dsh}）—— 0.2.1+ 只认这条`);
+}
+if (pkg.peerDependencies?.['@deepseek-ai/dsh'] !== DSH_RANGE) {
+  fail(`peerDependencies["@deepseek-ai/dsh"] 应为 ${DSH_RANGE}（现在是 ${pkg.peerDependencies?.['@deepseek-ai/dsh']}）—— 0.2.0-rc.2 只认这条`);
+}
+
+/**
+ * 最小 semver 子集：只判「>= 下界 < 上界」，预发布按 semver 逐段比较。
+ * 不实现「预发布只匹配同 M.m.p」那条规则，因为 DSH 判定时显式开了 includePrerelease:true。
+ */
+function parseSemver(text) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(String(text).trim());
+  if (!match) throw new Error(`不是合法版本号：${text}`);
+  return { core: [Number(match[1]), Number(match[2]), Number(match[3])], pre: match[4] === undefined ? [] : match[4].split('.') };
+}
+
+function compareSemver(left, right) {
+  const a = parseSemver(left);
+  const b = parseSemver(right);
+  for (let index = 0; index < 3; index += 1) {
+    if (a.core[index] !== b.core[index]) return a.core[index] < b.core[index] ? -1 : 1;
+  }
+  // 没有预发布的大于有预发布的（0.2.1 > 0.2.1-rc.1）。
+  if (a.pre.length === 0 || b.pre.length === 0) return a.pre.length === b.pre.length ? 0 : a.pre.length === 0 ? 1 : -1;
+  for (let index = 0; index < Math.max(a.pre.length, b.pre.length); index += 1) {
+    const x = a.pre[index];
+    const y = b.pre[index];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    const xNumeric = /^\d+$/.test(x);
+    const yNumeric = /^\d+$/.test(y);
+    if (xNumeric && yNumeric) {
+      if (Number(x) !== Number(y)) return Number(x) < Number(y) ? -1 : 1;
+    } else if (xNumeric !== yNumeric) {
+      return xNumeric ? -1 : 1;
+    } else if (x !== y) {
+      return x < y ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+function satisfiesDshRange(version, range) {
+  const match = /^>=\s*(\S+)\s+<\s*(\S+)$/.exec(String(range).trim());
+  if (!match) return false;
+  return compareSemver(version, match[1]) >= 0 && compareSemver(version, match[2]) < 0;
+}
+
+// 支持面：0.2.0 线 + 0.2.1 线（含它们的预发布）都要收，0.1.x 与 0.3.0 必须挡掉。
+const DSH_RANGE_SAMPLES = [
+  ['0.2.0-rc.1', false],
+  ['0.2.0-rc.2', true],
+  ['0.2.1-alpha.1', true],
+  ['0.2.1-rc.2', true],
+  ['0.2.1-rc.5', true],
+  ['0.2.2-alpha.2', true],
+  ['0.1.7-rc.2', false],
+  ['0.3.0', false],
+];
+for (const [version, expected] of DSH_RANGE_SAMPLES) {
+  const actual = satisfiesDshRange(version, DSH_RANGE);
+  if (actual !== expected) fail(`版本范围 ${DSH_RANGE} 对 ${version} 判定错：期望 ${expected}，实际 ${actual}`);
+}
 if (!pkg.keywords || !pkg.keywords.includes('dsh') || !pkg.keywords.includes('dsh-plugin')) {
   fail('keywords 至少要有 dsh / dsh-plugin');
 }

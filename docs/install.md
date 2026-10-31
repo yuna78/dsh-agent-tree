@@ -11,11 +11,11 @@
 |---|---|---|
 | Node.js | `^22.19` 或 `≥ 24` | 与 DSH 运行时一致 |
 | pnpm | 10+ | DSH 用 pnpm 管理 profile 依赖 |
-| DSH | `≥ 0.2.1-rc.2 < 0.3.0` | 已验证 `0.2.1-rc.2`；用 npm 全局安装的发行版 |
+| DSH | `≥ 0.2.0-rc.2 < 0.3.0` | 已验证 `0.2.0-rc.2` 与 `0.2.1-rc.2`；用 npm 全局安装的发行版 |
 | 一个 LLM provider | — | 插件本身不需要 key，但要能跑会话才有东西可看 |
 
 ```sh
-npm i -g @deepseek-ai/dsh@0.2.1-rc.2   # 若还没装
+npm i -g @deepseek-ai/dsh@latest   # 还没有才装；已经在跑 0.2.0-rc.2 / 0.2.1-rc.x 的不用升级
 dsh --version
 ```
 

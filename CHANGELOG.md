@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.5 — 2026-10-31
+
+- **向下兼容 DSH 0.2.0 线**：`engines.dsh` 与 `peerDependencies["@deepseek-ai/dsh"]` 从 `>=0.2.1-rc.2 <0.3.0`
+  放宽到 `>=0.2.0-rc.2 <0.3.0`。0.2.0-rc.2 上现在能正常安装、宿主行插入、客户端卡片渲染——0.1.4 及更早会被
+  DSH 的兼容性门直接拒绝并原子回滚（`dsh: installation rejected: …`），这就是「别人用不了」的原因。
+- **为什么要两处一起改**：0.2.0-rc.2 的 `evaluatePluginCompatibility`（`@deepseek-ai/dsh-app-boot`）**只读
+  `peerDependencies`**，压根不看 `engines.dsh`；0.2.1+ 反过来，有 `engines.dsh` 就只认它、忽略 peer。
+  只放宽一处，另一条线照样装不上。区间带 `-rc.2` 是必须的：DSH 用 `includePrerelease: true` 判定，而
+  `>=0.2.1-rc.1 <0.3.0` 这种写法反而会静默排除 `0.2.1-rc.2`。
+- **零代码分叉**：把 0.2.0-rc.2 与 0.2.1-rc.2 的依赖面逐项比对了一遍——`shell.overlay` 座位（list / root）、
+  5 个客户端注入服务（`sessions` / `slots` / `workspaces` / `remote` / `uiWorkspace`）、标准槽 props
+  （`useSessions` / `useSessionStatus`）、`api-session/status` 与 `schedule/changed` 事件、`projectionValues`
+  的 `subagentTiming` / `modelSelection`、宿主 `webServer.register` 与 `connection.requestRejection` ——
+  签名和语义都一致，没有任何 `if (version)` 兼容代码。
+- **实测（0.2.0-rc.2，隔离环境，2026-10-31）**：`npm i --prefix /tmp/dsh020 @deepseek-ai/dsh@0.2.0-rc.2` +
+  独立 `DSH_HOME`；`dsh plugin add` 无 `allow-version` 豁免直接成功；`dsh --profile web --port 3199` 启动无
+  `[dsh-agent-tree]` 警告；`GET /local/dsh-agent-tree/processes` 未登录 401 / 带 cookie 200（真实 JSON）/
+  错误兄弟路径 404；前端 module manifest 含 `dsh-plugin-agent-tree/client.js`（bundle HTTP 200）；headless
+  Chromium 里 `div.dsh-agent-tree-root.dsh-agent-tree-pill` 正常渲染、无 pageerror。0.2.1-rc.2 同样回归通过。
+- **已知退化**：0.2.0-rc.2 的 shipped `web` 模板没带 schedule bundle，`/api/schedule/catalog` 404，
+  定时任务倒计时不显示（客户端静默降级，其它功能不受影响）。
+- `verify/smoke.mjs` 新增版本门回归：两处范围必须相等，且必须收下 `0.2.0-rc.2` / `0.2.1-rc.x`、
+  挡掉 `0.1.x` 与 `0.3.0`（内置一个最小 semver 子集，不引依赖）。
+- 文档：`docs/compat.md` 重写（支持范围 / 两条版本门 / 0.2.0-rc.2 实测记录）；安装文档与 README 的前置版本同步。
+
 ## 0.1.4 — 2026-10-31
 
 - **新皮肤：鲸鱼娘·小姑娘**——手绘 Q 版小姑娘（天蓝双马尾、鲸鱼尾巴发饰、水手领、腮红），从卡片右上角探出

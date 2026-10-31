@@ -43,7 +43,7 @@ at which depth, on which model, for how long, and when its next scheduled run fi
 
 ## Install in 3 minutes
 
-Prerequisites: Node.js `^22.19 or ≥ 24` (same as the DSH runtime), pnpm 10+, DSH `≥ 0.2.1-rc.2 < 0.3` (verified on `0.2.1-rc.2`).
+Prerequisites: Node.js `^22.19 or ≥ 24` (same as the DSH runtime), pnpm 10+, DSH `≥ 0.2.0-rc.2 < 0.3` (both `0.2.0-rc.2` and `0.2.1-rc.2` tested).
 
 ```sh
 # 1) a dedicated profile (or reuse your existing web profile)
@@ -135,7 +135,7 @@ Only public client-side UI contracts — no host patching, no database access:
 
 | Item | Range |
 |---|---|
-| DSH | `>= 0.2.1-rc.2 < 0.3.0` (verified `0.2.1-rc.2`, Web profile) |
+| DSH | `>= 0.2.0-rc.2 < 0.3.0` (tested on `0.2.0-rc.2` and `0.2.1-rc.2`, Web profile; covers the whole 0.2.x prerelease line) |
 | Node.js | `^22.19.0 \|\| >= 24.0.0` |
 | Platform | DSH Web (client seat `shell.overlay`); process block macOS/Linux |
 
