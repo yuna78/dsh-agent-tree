@@ -20,7 +20,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outArg = process.argv.indexOf('--out');
 const OUT = resolve(outArg > 0 ? process.argv[outArg + 1] : join(ROOT, 'dist', 'public'));
 
-const FILES = ['package.json', 'index.js', 'client.js', 'cordis.patch.yml', '.gitignore', 'README.md', 'README.en.md', 'CHANGELOG.md', 'LICENSE'];
+const FILES = ['package.json', 'index.js', 'client.js', 'cordis.patch.yml', '.gitignore', 'README.md', 'README.en.md', 'CHANGELOG.md', 'LICENSE', 'screenshots.json'];
 const DIRS = ['docs', 'test', 'verify', 'scripts', 'market'];
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.cache', '__pycache__', 'coverage']);
 const SKIP_FILES = /(^|\/)(\.DS_Store|.*\.log|.*\.tmp|.*\.tgz|.*\.bak.*)$/;
