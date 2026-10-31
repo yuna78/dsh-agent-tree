@@ -2,26 +2,36 @@
 
 [简体中文](README.md) · English
 
-![Agent Tree: a 288px floating card that draws the dsh instance, workspaces, conversations and subagents as a real tree](docs/assets/screenshot.png?v=0.1.1b)
+![Agent Tree: expanded it is a 288px card, collapsed a capsule — and skins really grow outside the dock](docs/assets/screenshot-capsule.png?v=0.1.3)
 
 **Agent Tree** is a small observability plugin for the DeepSeek Harness (DSH) Web UI: a **288px wide floating card**
 in a corner that draws `dsh → workspace → conversation → subagent → grandchild` as a live tree with
 `git log --graph`-style connectors. Only branches that are **running or scheduled** are shown, so the card stays small;
-when nothing is happening it collapses to a one-line strip — and it never disappears.
+when nothing is happening it collapses to a **round capsule** — and it never disappears.
 
 It solves one concrete annoyance: with many conversations open you have to click into each one to see what its
 subagents are doing. The DSH sidebar lists conversations, not agent lineage. This card shows **who is running,
 at which depth, on which model, for how long, and when its next scheduled run fires**.
 
+![Inside the DSH page: a small always-on card in the bottom-right corner, with the sakura branch growing outside the dock (sample data)](docs/assets/screenshot-app.png?v=0.1.3)
+
 ## Features
 
 - **The top level is an agent list** — `dsh` (this instance) and the local `claude` / `codex` processes are **siblings**, each expanding its own tree: `dsh → workspace → conversation → subagent → grandchild`, with `├─ └─ │` indentation and `▾ / ▸` collapse.
-- **Always-on entry** — idle collapses to `● Agent tree ▸`; work re-expands it; manual collapse wins.
+- **Plugin-dock style window header** — plugin icon + the name **Agent Tree Dock** on the left, a status subline (`1 待处理 · 5 在跑 · 3 定时`) underneath, and three ghost icon buttons on the right: **paint drop** (skins), **spinner** (update check) and **—** (minimise). They sit in a soft grey at rest and only pick up a faint tint on hover.
+- **Always-on entry (capsule)** — idle collapses to a round capsule `🌳 Agent Tree Dock 1 待处理 🤖5 ⏰3 ⌃`. Each counter appears only when non-zero: amber `N 待处理` (waiting for your call), green robot `🤖N` (N agents running), monochrome clock `⏰N` (N scheduled tasks). When fully idle it is just icon + name + chevron. Click the capsule (or `Enter` / `Space`) to expand, drag to move; manual collapse wins over auto-expand.
+- **Skins (DIY, old-QQ style)** — a paint-drop button switches palettes: **Default / Sakura / Whale girl** ship built in, each with card
+  surface, header banner, redrawn sakura / whale icons, frame and capsule colours plus dark-mode values. Sakura and Whale girl also carry
+  **real transparent illustration assets** (a whole sakura branch, a baby whale in its splash) rendered *outside* the card and *behind* it,
+  so they look like they grow out of the dock; the collapsed capsule gets a small sprig too. Adding your own needs no code changes: register
+  `--dat-*` variables plus a `decor` image list on `window.__DSH_AGENT_TREE_SKINS__` — see the [skin guide](docs/skins.en.md).
 - **Color = depth** — green dot for top-level conversations, blue for level-2 subagents, violet for deeper ones, grey for finished rows.
 - **Per-row model chip** (right aligned) — from the session projection `modelSelection` (`next` → `lastUsed`), shortened to `v4.1-flash`; subagents without their own record inherit the parent's (tooltip says so).
 - **Multiple local dsh instances** — when you run several `dsh web --port 30xx` at once, sessions live in the other instances
-  show up too: one top-level node per instance (`dsh :3083`) labelled with its session / subagent counts, listing the sessions it
-  currently has open — each row shows how many subagents hang off it (`▸` expands them); click to open that instance in a new tab. The host half discovers ports and sessions via `ps` + `lsof` on local files, so no cross-instance auth is needed.
+  show up too: one top-level node per instance (`dsh :3083`) labelled with its session / subagent counts, listing only the sessions that
+  are **still working** (or waiting for your call) — stale sessions and instances with nothing active are dropped; each row shows how many
+  subagents hang off it (`▸` expands them), click to open that instance in a new tab. The host half discovers ports and sessions via
+  `ps` + `lsof` on local files, so no cross-instance auth is needed.
 - **Alarm clock on loop sessions** — any session driven by a schedule keeps a `⏰` in front of its title, with the countdown to the next run on the right (`8m` / `2h` / `3d`); a round that just fired shows `now` and still keeps the clock, so a running loop never looks like a plain conversation.
 - **Scheduled-task countdown** — reads `schedule.catalog()` from Automation tasks (the `remote.schedule` service, with a `ctx.get` fallback while its namespace is not mounted yet); sessions driven by a schedule are listed even while idle, with `⏱8m / ⏱2h / ⏱3d` and a `N running · M scheduled` headline.
 - **Sessions that need your call come first** — when an agent asks a question, waits for an approval, or waits for a plan review (`pendingInteraction` = `question` / `approval` / `plan-review`), that row turns **amber**, carries a `待答 / 待批 / 待审` badge and **sorts above running rows**. Previously such a session disappeared because it was no longer running.
@@ -61,9 +71,12 @@ dsh plugin --profile web add "$PWD"
 
 ## Reading the card
 
+![Collapsed: a round capsule — click to expand; the prominent minimize button sits in the card header](docs/assets/screenshot-capsule.png?v=0.1.3)
+
 | What you see | Meaning |
 |---|---|
-| `● 5 个 agent 在跑 · 2 个定时` | 5 sessions/subagents are running; 2 more are schedule-driven (may be idle right now) |
+| `🌳 Agent Tree Dock 1 待处理 🤖5 ⏰3 ⌃` | **collapsed capsule**: icon + name + three counters — `1 待处理` (waiting for you), `🤖5` (5 agents running), `⏰3` (3 scheduled tasks); zero counters are hidden. Click it (or `Enter` / `Space`) to expand, drag to move |
+| `● 5 个 agent 在跑 · 2 定时` | 5 sessions/subagents are running; 2 more are schedule-driven (may be idle right now) |
 | `▾ ● dsh  2 个 workspace` | one local agent — this DSH instance; workspace count on the right |
 | `├─ ▾ proj-alpha  2` | workspace group, count on the right |
 | `├─ ▾ ● Refactor billing flow  ⏱8m  v4.1-pro` | top-level conversation running (green), next scheduled run in 8 min, on v4.1-pro |
@@ -75,7 +88,23 @@ dsh plugin --profile web add "$PWD"
 The UI strings are Chinese for now (DSH itself is Chinese-first); a locale pass is welcome — the copy lives in one
 `labels` object in `client.js`.
 
-Click a row to jump to that session; drag the header to move the card; click `▾/▸` to collapse.
+Click a row to jump to that session; drag the header to move the card; click `▾/▸` to collapse. Click the **spinner** button in the header to check npm once for the latest release (`latest` is cached for 30 minutes); a small dot appears on the button when an update exists.
+
+## Skins
+
+![Three built-in skins: default / sakura / whale girl](docs/assets/screenshot-skins.png?v=0.1.3)
+
+Left of the minimise button in the header there is a **palette button**. It opens the built-in skins:
+
+| Skin | Palette | Details |
+|---|---|---|
+| Default | follows the DSH theme | plain white / dark card, no decoration |
+| Sakura | pink + rose | pink banner on the header, sakura icon, rose border / shadow, level-2/3 dots turn pink / violet |
+| Whale girl | DeepSeek blue + sea gradient | blue banner, whale icon, blue-tinted text and counters |
+
+The choice is stored in `localStorage: dsh-agent-tree:skin` and the collapsed capsule follows it too (with a small decoration).
+To build your own (or just tweak a few colours), register CSS variables plus a `decor` list on `window.__DSH_AGENT_TREE_SKINS__` —
+the full variable table, icon / banner / decoration recipes and an example are in the [skin guide](docs/skins.en.md).
 
 ## Where the data comes from
 

@@ -64,7 +64,7 @@ dsh plugin --profile web add "$PWD"
 
 ## 5. 验证装好了吗
 
-1. 打开 DSH Web，右下角出现 `● Agent 树 ▸` 或展开的树状卡；
+1. 打开 DSH Web，右下角出现一颗「胶囊」或展开的树状卡；
 2. 起一个会话让它干活，卡片标题变成 `● 1 个 agent 在跑`；
 3. 在终端跑 `claude --help` 或 `codex --help` 让它挂着，几秒后卡片底部出现 `● claude …` 行
    （说明宿主半部的进程接口通了）。
@@ -75,6 +75,9 @@ dsh plugin --profile web add "$PWD"
 dsh plugin --profile web add dsh-plugin-agent-tree@latest
 # 重启 dsh + 硬刷新
 ```
+
+不想记命令：展开卡片，点窗口头中间那个**转圈按钮**，它会去 npm 查一次最新版；有新版就把上面这条命令显示出来，
+点「复制命令」粘贴即可。检查只在点击时联网（只读 GET，不带 cookie）。
 
 ## 7. 卸载
 

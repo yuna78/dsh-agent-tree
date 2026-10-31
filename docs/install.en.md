@@ -52,7 +52,7 @@ Client-only changes (`client.js`) need just a page refresh — the bundle `rev` 
 
 ## 5. Verify
 
-1. Open DSH Web: `● Agent 树 ▸` or the expanded tree card is in the corner.
+1. Open DSH Web: a capsule or the expanded tree card shows up in the corner.
 2. Start a conversation and let it work: the headline becomes `● 1 个 agent 在跑`.
 3. Run `claude --help` (or `codex --help`) in a terminal and leave it hanging: a `● claude …` row appears at the
    bottom of the card within a few seconds — that proves the host endpoint works.
@@ -63,6 +63,9 @@ Client-only changes (`client.js`) need just a page refresh — the bundle `rev` 
 dsh plugin --profile web add dsh-plugin-agent-tree@latest
 # restart dsh, hard-refresh the browser
 ```
+
+Or skip the command: expand the card and click the **spinner** button in the header — it checks npm once and, when a
+new release exists, shows the command above with a one-click copy. The check only goes online on click (read-only GET, no cookies).
 
 ## 7. Uninstall
 

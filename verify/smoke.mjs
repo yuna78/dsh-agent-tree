@@ -108,11 +108,24 @@ const CLIENT_MARKERS = [
   ['subagentAddress', '跳转地址'],
   ['buildInstances', '本机其它 dsh 实例渲染'],
   ['data.instances', '实例列表接口字段'],
+  ['NPM_LATEST_URL', '检查更新接口'],
+  ['renderUpdatePanel', '检查更新面板'],
+  ['PLUGIN_VERSION', '客户端版本号'],
 ];
 for (const [marker, label] of CLIENT_MARKERS) {
   if (!client.includes(marker)) fail(`client.js 少了${label}（${marker}）`);
 }
 if (!client.includes('inherited')) fail('client.js 少了模型继承标记（inherited）');
+
+// 检查更新靠 client.js 里的版本号：它必须和 package.json 一致，否则会误报 / 漏报。
+const clientVersion = /const PLUGIN_VERSION = '([^']+)'/.exec(client);
+if (!clientVersion) fail('client.js 里没有 PLUGIN_VERSION 常量');
+else if (clientVersion[1] !== pkg.version) {
+  fail(`client.js 的 PLUGIN_VERSION=${clientVersion[1]} 和 package.json 的 ${pkg.version} 不一致`);
+}
+if (!client.includes('https://registry.npmjs.org/dsh-plugin-agent-tree/latest')) {
+  fail('client.js 少了 npm registry 的 latest 地址（检查更新用）');
+}
 
 // ------------------------------------------------------------- 4. 宿主半部
 const host = read('index.js');

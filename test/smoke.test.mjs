@@ -669,6 +669,166 @@ test('buildInstances 把其它 dsh 实例的端口和会话拼成可渲染节点
   assert.deepEqual(noPort, [], '没有端口也没有会话的实例不占行');
 });
 
+test('buildInstances 只列别的端口里还在干活的会话（旧的整条不显示）', () => {
+  const { buildInstances } = clientModule.__test;
+  const now = Date.UTC(2026, 9, 29, 9, 30, 0);
+  const sessions = {
+    byId: {
+      live: { id: 'live', displayTitle: '刚更新过', updatedAt: now - 40 * 1000 },
+      stale: { id: 'stale', displayTitle: '几小时前', updatedAt: now - 6 * 3600 * 1000 },
+      staleChild: { id: 'staleChild', displayTitle: '收工的子代理', parentId: 'live', updatedAt: now - 5 * 3600 * 1000 },
+      liveChild: { id: 'liveChild', displayTitle: '在跑的子代理', parentId: 'live', updatedAt: now - 20 * 1000 },
+    },
+  };
+
+  const views = buildInstances(
+    [{ pid: 4242, ports: [3084], sessionIds: ['live', 'stale'] }],
+    sessions,
+    null,
+    now,
+  );
+  assert.equal(views.length, 1);
+  assert.equal(views[0].count, 1, '6 小时前的会话不显示');
+  assert.deepEqual(views[0].rows.map((row) => row.id), ['live']);
+  assert.equal(views[0].rows[0].subagents, 1, '子代理也只数还在跑的');
+  assert.deepEqual(views[0].rows[0].children.map((child) => child.id), ['liveChild']);
+  assert.equal(views[0].subagents, 1);
+
+  const allStale = buildInstances(
+    [{ pid: 4243, ports: [3085], sessionIds: ['stale'] }],
+    sessions,
+    null,
+    now,
+  );
+  assert.deepEqual(allStale, [], '没有在干活的会话时整条实例节点收掉');
+});
+
+test('buildInstances 用实时状态优先于「最近活动」的猜测', () => {
+  const { buildInstances } = clientModule.__test;
+  const now = Date.UTC(2026, 9, 29, 9, 30, 0);
+  const sessions = {
+    byId: {
+      running: { id: 'running', displayTitle: '状态里在跑但更新时间旧', updatedAt: now - 2 * 3600 * 1000 },
+      idle: { id: 'idle', displayTitle: '刚更新但状态说空闲', updatedAt: now - 5 * 1000 },
+      waiting: { id: 'waiting', displayTitle: '等你批准', updatedAt: now - 3 * 3600 * 1000 },
+    },
+  };
+  const statuses = new Map([
+    ['running', { running: true }],
+    ['idle', { running: false }],
+    ['waiting', { running: false, pendingInteraction: { kind: 'approval' } }],
+  ]);
+  const views = buildInstances(
+    [{ pid: 4244, ports: [3086], sessionIds: ['running', 'idle', 'waiting'] }],
+    sessions,
+    statuses,
+    now,
+  );
+  assert.equal(views.length, 1);
+  assert.deepEqual(
+    views[0].rows.map((row) => row.id).sort(),
+    ['running', 'waiting'],
+    '状态里在跑 / 等你拍板的都保留，状态说空闲的滤掉',
+  );
+  assert.equal(views[0].waiting, true);
+});
+
+test('皮肤：内置三套 + DIY 注册，非法 id / 变量被挡掉', () => {
+  const { getSkins, sanitizeSkin, SKINS } = clientModule.__test;
+  const ids = SKINS.map((skin) => skin.id);
+  assert.deepEqual(ids, ['default', 'sakura', 'whale']);
+  assert.equal(new Set(ids).size, ids.length, 'id 唯一');
+
+  assert.equal(sanitizeSkin(null), null);
+  assert.equal(sanitizeSkin({ id: 'bad id' }), null);
+  assert.equal(sanitizeSkin({ id: 'UPPER', light: {} }).id, 'upper', 'id 统一小写');
+
+  const mine = sanitizeSkin({
+    id: 'mine',
+    name: '我的主题',
+    desc: '手搓',
+    icon: 'whale',
+    light: {
+      '--dat-surface': '#fff',
+      '--dat-title': 'red; } body { display:none', // 试图闭合声明
+      '--unknown-var': '#000',
+    },
+    dark: { '--dat-surface': '#111' },
+  });
+  assert.equal(mine.light['--dat-surface'], '#fff');
+  assert.equal(mine.light['--dat-title'], undefined, '带 ;{} 的值直接丢掉');
+  assert.equal(mine.light['--unknown-var'], undefined, '不认识变量不收');
+
+  window.__DSH_AGENT_TREE_SKINS__ = [
+    { id: 'mine', name: '我的主题' },
+    { id: 'sakura', name: '假樱花' },
+  ];
+  const skins = getSkins();
+  assert.equal(skins.filter((skin) => skin.id === 'sakura').length, 1, 'DIY 不能顶掉内置皮肤');
+  assert.ok(skins.some((skin) => skin.id === 'mine'));
+  window.__DSH_AGENT_TREE_SKINS__ = undefined;
+  assert.ok(!getSkins().some((skin) => skin.id === 'mine'), '卸掉注册就没了');
+});
+
+test('皮肤：CSS 只给有变量的皮肤出规则，亮/暗各一组，未知 id 回落到默认', () => {
+  const { skinCss, getSkins, resolveSkin, readSkinId, saveSkinId } = clientModule.__test;
+  const skins = getSkins();
+  const css = skinCss(skins);
+  assert.ok(css.includes('.dsh-agent-tree-root[data-skin="sakura"]{'));
+  assert.ok(css.includes('body[data-ds-dark-theme] .dsh-agent-tree-root[data-skin="sakura"]{'));
+  assert.ok(!css.includes('data-skin="default"]{'), '默认皮肤没有变量，不该出规则');
+  assert.ok(css.includes('--dat-surface:#fffafc'), '樱花的表面色进 CSS');
+
+  assert.equal(resolveSkin(skins, 'whale').id, 'whale');
+  assert.equal(resolveSkin(skins, 'nope').id, 'default', '未知 id 回落到第一套');
+
+  saveSkinId('whale');
+  assert.equal(readSkinId(), 'whale');
+  saveSkinId('default');
+  assert.equal(readSkinId(), 'default');
+});
+
+test('版本比较：数字按数值比，正式版大于预发布', () => {
+  const { parseVersion, compareVersions, isNewerVersion } = clientModule.__test;
+  assert.deepEqual(parseVersion('v0.1.3'), { core: [0, 1, 3], pre: '' });
+  assert.deepEqual(parseVersion('0.2.0-rc.1+build.7'), { core: [0, 2, 0], pre: 'rc.1' });
+  assert.equal(parseVersion('0.1'), null);
+  assert.equal(parseVersion(null), null);
+  assert.ok(compareVersions('0.1.10', '0.1.9') > 0, '按数值比，不是按字符串');
+  assert.ok(compareVersions('0.2.0', '0.1.99') > 0);
+  assert.equal(compareVersions('0.1.2', 'v0.1.2'), 0);
+  assert.ok(compareVersions('0.2.0', '0.2.0-rc.1') > 0, '正式版 > 预发布');
+  assert.ok(compareVersions('0.2.0-rc.2', '0.2.0-rc.10') < 0, 'rc.2 < rc.10');
+  assert.equal(compareVersions('nope', '0.1.2'), 0, '坏版本按一样新处理，不误报有更新');
+  assert.equal(isNewerVersion('0.1.3', '0.1.2'), true);
+  assert.equal(isNewerVersion('0.1.2', '0.1.2'), false);
+  assert.equal(isNewerVersion('0.1.1', '0.1.2'), false);
+});
+
+test('检查更新：缓存坏数据不炸，按钮提示跟着状态走', () => {
+  const { readUpdateCache, saveUpdateCache, checkedAgoLabel, updateButtonTitle, PLUGIN_VERSION } =
+    clientModule.__test;
+  saveUpdateCache({ latest: '0.2.0', at: 1000 });
+  assert.deepEqual(readUpdateCache(), { latest: '0.2.0', at: 1000 });
+  window.localStorage.setItem('dsh-agent-tree:update', 'not json');
+  assert.equal(readUpdateCache(), null);
+  window.localStorage.setItem('dsh-agent-tree:update', JSON.stringify({ latest: 'oops' }));
+  assert.equal(readUpdateCache(), null);
+
+  assert.equal(checkedAgoLabel(0, Date.now()), '');
+  assert.equal(checkedAgoLabel(1000, 2000), '刚刚');
+  const base = 1_000_000;
+  assert.equal(checkedAgoLabel(base, base + 3 * 60 * 1000), '3 分钟前');
+  assert.equal(checkedAgoLabel(base, base + 2 * 3600 * 1000), '2 小时前');
+  assert.equal(checkedAgoLabel(base, base + 3 * 24 * 3600 * 1000), '3 天前');
+
+  assert.equal(updateButtonTitle({ phase: 'idle', latest: '' }, false), '检查更新');
+  assert.equal(updateButtonTitle({ phase: 'checking', latest: '' }, false), '正在检查更新…');
+  assert.ok(updateButtonTitle({ phase: 'outdated', latest: '0.2.0' }, true).includes('0.2.0'));
+  assert.ok(updateButtonTitle({ phase: 'latest', latest: PLUGIN_VERSION }, false).includes('已是最新'));
+  assert.ok(updateButtonTitle({ phase: 'error', latest: '' }, false).includes('失败'));
+});
+
 test('parseLsofSessions 抓的是带 session- 前缀的会话 id（和客户端会话表同一套 key）', () => {
 
   const text = [

@@ -4,7 +4,7 @@
 
 ```
 ┌──────────────────────────────────────────────────┐
-│ ● 5 个 agent 在跑 · 2 个定时                  ▾  │ ← headline + collapse
+│ ● 5 个 agent 在跑 · 2 定时                  ▾  │ ← headline + collapse
 ├──────────────────────────────────────────────────┤
 │ ▾ ● dsh                          2 个 workspace  │ ← top-level agent: this DSH instance
 │ ├─ ▾ proj-alpha                              2  │ ← workspace
@@ -29,10 +29,12 @@
 
 | Text | Meaning |
 |---|---|
-| `● 5 个 agent 在跑 · 2 个定时` | 5 sessions/subagents are running; 2 sessions have an active schedule |
+| `● 5 个 agent 在跑 · 2 定时` | 5 sessions/subagents are running; 2 sessions have an active schedule |
 | `空闲 · 2 个定时待命` | nothing running, only scheduled tasks pending |
-| `● Agent 树 ▸` | collapsed (single line) |
-| `▾ / ▸` on the right | manual expand / collapse; manual wins over auto-collapse |
+| `🌳 Agent Tree Dock 1 待处理 🤖5 ⏰3 ⌃` | collapsed: a round capsule with three counters — waiting / running agents / scheduled tasks; zero counters are hidden |
+| the “—” button in the header / the capsule itself | manual collapse / expand; manual wins over auto-collapse |
+| the paint-drop button in the header | open the skin list and switch skins (see 1.6) |
+| the spinner button in the header | check for a plugin update — only goes online on click (see 1.7) |
 
 Auto-collapse rule: collapse when `running === 0 && scheduled === 0`; expand automatically as soon as work appears
 (unless you collapsed it manually).
@@ -67,6 +69,46 @@ dsh (this instance)
 ```
 
 The `dsh` root row collapses every workspace at once; its right side shows the workspace count.
+
+## 1.6 Skins
+
+Left of the “—” in the header there is a paint-drop button. It opens the built-in skins:
+
+| Skin | Palette | Details |
+|---|---|---|
+| Default | follows the DSH theme | plain white / dark card, no decoration |
+| Sakura | pink + rose | pink banner, redrawn sakura icon, rose border / shadow, level-2/3 dots turn pink / violet; a whole sakura branch grows outside the card |
+| Whale girl | DeepSeek blue + sea gradient | blue banner, redrawn whale icon, blue-tinted text and counters; a baby whale peeks out of the top-right corner |
+
+- Picking one applies immediately; the choice lives in `localStorage: dsh-agent-tree:skin`;
+- Sakura / Whale girl ship **frame decorations**: transparent assets rendered outside and behind the card, so only the part sticking
+  out is visible — like it grows out of the dock. When collapsed, the first decoration sticks to the capsule's top-right corner;
+- The collapsed capsule keeps the skin too (the paint drop lives in the expanded header);
+- `Esc` or clicking the paint drop again closes the list;
+- Every skin carries its own dark values and follows DSH's `body[data-ds-dark-theme]`.
+
+To add your own (or tweak a few colours) without touching the code, register `--dat-*` CSS variables plus an optional
+`decor` list on `window.__DSH_AGENT_TREE_SKINS__` — the full variable table, icon / banner / decoration recipes and an
+example are in the [skin guide](skins.en.md).
+
+## 1.7 Update check
+
+The middle ghost button in the header is the **spinner**:
+
+| State | What you see |
+|---|---|
+| idle | a faint circular arrow; a small dot sits on the button when a newer version is known |
+| clicked | the icon spins and a small panel opens under the header |
+| up to date | `✓ 已是最新 · v0.1.3` plus “checked npm registry just now / N minutes ago” |
+| update found | `↑ 发现新版本 vX` with a one-click copy of the upgrade command |
+| failure | a red hint (“browser can't reach the npm registry”) and a retry |
+
+- **Online only on click**: one read-only GET to `https://registry.npmjs.org/dsh-plugin-agent-tree/latest`, no cookies, no
+  token, no polling, nothing about your machine is sent;
+- The result (latest version + timestamp) is cached in `localStorage: dsh-agent-tree:update` for 30 minutes, so the dot
+  survives a reload;
+- The command is `dsh plugin --profile web add dsh-plugin-agent-tree@latest`;
+- `PLUGIN_VERSION` in `client.js` must equal `version` in `package.json` (`npm run verify` enforces this) — bump both when releasing.
 
 ## 2. Row elements
 
@@ -117,6 +159,9 @@ but the process table and the session store are shared, so the host half can rea
    └─ ● 汇总日报                 7m
 ```
 
+- **Only sessions still working are listed**: with a live status it trusts that (running / waiting for you), otherwise it
+  treats a session as active when it changed within the last 5 minutes; stale sessions are hidden and an instance with nothing
+  active is dropped entirely.
 - Titles come from the shared session store, so they match what that instance shows; the right side is "last touched".
 - `N子` is how many subagents hang off that session (counted via `parentId` in the session table); `▸` expands up to 6 child rows.
 - Click the instance row / a session row to open that port in a new tab (no deep link to the exact session).
@@ -193,7 +238,8 @@ The row is named after **the first real request of that codex session** (skippin
 | click a row | jump to that session (subagents open their own conversation) |
 | click `▾/▸` | collapse / expand that node's children |
 | drag the header | move the card; position saved in `localStorage: dsh-agent-tree:pos` |
-| click headline `▾/▸` | collapse / expand the whole card |
+| click the “—” in the header / the capsule | collapse to a capsule / expand the whole card |
+| click the paint-drop button in the header | open the skin list and pick a skin |
 
 ## 9. Refresh cadence
 
