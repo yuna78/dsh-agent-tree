@@ -50,7 +50,8 @@ jobs:
           ls -l ./*.tgz
           sha256sum ./*.tgz || shasum -a 256 ./*.tgz
 
-      - name: 与 npm 上同一版本逐字节比对（tag 内容 ≠ 已发布内容就报错）
+      - name: 与 npm 上同一版本比对内容（文件清单 + 每个文件的内容）
+        # 不比字节：npm pack 的 tar 头里带平台信息，macOS 与 Linux 打出来的 tgz 字节不同但内容相同。
         run: |
           NAME="$(node -p "require('./package.json').name")"
           VER="$(node -p "require('./package.json').version")"
@@ -62,18 +63,19 @@ jobs:
             sleep 10
           done
           if [ -z "$meta" ]; then
-            echo "::warning::npm 上还没有 $NAME@$VER，跳过一致性比对（先发 release 后发 npm 时正常）"
+            echo "::warning::npm 上还没有 $NAME@$VER，跳过内容比对（先建 release 后发 npm 时属正常）"
             exit 0
           fi
-          want="$(printf '%s' "$meta" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).dist.shasum))")"
-          have="$(shasum -a 1 ./*.tgz | cut -d' ' -f1)"
-          echo "npm dist.shasum = $want"
-          echo "本地 pack       = $have"
-          if [ "$want" != "$have" ]; then
-            echo "::error::tgz 与 npm 上已发布的 $VER 不一致 —— tag 里的内容不等于发出去的内容（多半是发版后又改了文件）。"
+          URL="$(printf '%s' "$meta" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).dist.tarball))")"
+          rm -rf /tmp/cmp && mkdir -p /tmp/cmp/npm /tmp/cmp/ours
+          curl -fsSL "$URL" -o /tmp/npm.tgz
+          tar -xzf /tmp/npm.tgz -C /tmp/cmp/npm
+          tar -xzf ./*.tgz -C /tmp/cmp/ours
+          if ! diff -r /tmp/cmp/npm /tmp/cmp/ours; then
+            echo "::error::tag 里的内容和 npm 上已发布的 $VER 不一致（差异见上）—— 多半是发版后又改了文件"
             exit 1
           fi
-          echo "一致 ✓"
+          echo "内容一致 ✓ 文件 $(find /tmp/cmp/ours -type f | wc -l) 个"
 
       - name: 挂到 Release（已有同名 asset 就覆盖）
         run: |
