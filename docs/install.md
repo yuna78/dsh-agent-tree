@@ -44,7 +44,11 @@ dsh plugin --profile web add dsh-plugin-agent-tree
 ## 3. 其它安装方式
 
 ```sh
-# GitHub 源码（market 探测之外的花式装法）
+# Release 的 tgz（和 npm 上同一份内容；只拉运行需要的文件，不带 .git 历史）
+dsh plugin --profile web add \
+  https://github.com/yuna78/dsh-agent-tree/releases/download/v0.1.2/dsh-plugin-agent-tree-0.1.2.tgz
+
+# GitHub 源码（带完整提交历史，适合要改代码的）
 dsh plugin --profile web add "github:yuna78/dsh-agent-tree"
 
 # 本地目录（开发用；改 client.js 刷新即可，改 index.js 要重启）

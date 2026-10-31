@@ -64,8 +64,12 @@ dsh --profile agent-tree --port 13090
 # 装到已有 profile
 dsh plugin --profile web add dsh-plugin-agent-tree
 
-# 从 GitHub 源码装
+# 从 GitHub 源码装（带完整提交历史，适合改代码）
 dsh plugin --profile web add "github:yuna78/dsh-agent-tree"
+
+# 从 Release 的 tgz 装（和 npm 上同一份内容，只下载运行需要的文件）
+dsh plugin --profile web add \
+  https://github.com/yuna78/dsh-agent-tree/releases/download/v0.1.2/dsh-plugin-agent-tree-0.1.2.tgz
 
 # 本地开发（本仓库路径）
 dsh plugin --profile web add "$PWD"

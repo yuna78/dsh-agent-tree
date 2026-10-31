@@ -1,0 +1,92 @@
+# 给每个 Release 挂一个可数的 .tgz
+#
+# 为什么：npm 的下载量统计会被镜像同步、CI 重装、依赖扫描放大（一个版本固定被拉 ~150 次），
+# 而且不记录是谁。挂到 Release asset 上的 tgz 只有 .download_count 一个干净计数：
+# 没有镜像会去镜像 GitHub Release，也没有包管理器会顺手拉它。
+#
+# 用法：正常发版（在 dist/public 里 gh release create）→ 本工作流自动跑一次。
+# 补挂历史版本：Actions → 本工作流 → Run workflow，填 tag。
+name: Attach package tarball
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要补挂 tarball 的 tag（如 v0.1.2；留空用最新 release）
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  tarball:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 版本一致性检查（tag 与 package.json 必须对得上）
+        run: |
+          if [ -n "$TAG" ]; then
+            want="${TAG#v}"
+            have="$(node -p "require('./package.json').version")"
+            echo "tag=$TAG package=$have"
+            [ "$want" = "$have" ] || { echo "::error::tag $TAG 与 package.json 版本 $have 不一致"; exit 1; }
+          fi
+
+      - name: 打包（npm pack，遵守 files 白名单，与 npm 上发布的同一份内容）
+        run: |
+          npm pack --silent
+          ls -l ./*.tgz
+          sha256sum ./*.tgz || shasum -a 256 ./*.tgz
+
+      - name: 与 npm 上同一版本逐字节比对（tag 内容 ≠ 已发布内容就报错）
+        run: |
+          NAME="$(node -p "require('./package.json').name")"
+          VER="$(node -p "require('./package.json').version")"
+          meta=""
+          for i in 1 2 3 4 5 6; do
+            meta="$(curl -fsS "https://registry.npmjs.org/$NAME/$VER" || true)"
+            [ -n "$meta" ] && break
+            echo "npm 上还没有 $NAME@$VER，等 10s（第 $i 次）"
+            sleep 10
+          done
+          if [ -z "$meta" ]; then
+            echo "::warning::npm 上还没有 $NAME@$VER，跳过一致性比对（先发 release 后发 npm 时正常）"
+            exit 0
+          fi
+          want="$(printf '%s' "$meta" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).dist.shasum))")"
+          have="$(shasum -a 1 ./*.tgz | cut -d' ' -f1)"
+          echo "npm dist.shasum = $want"
+          echo "本地 pack       = $have"
+          if [ "$want" != "$have" ]; then
+            echo "::error::tgz 与 npm 上已发布的 $VER 不一致 —— tag 里的内容不等于发出去的内容（多半是发版后又改了文件）。"
+            exit 1
+          fi
+          echo "一致 ✓"
+
+      - name: 挂到 Release（已有同名 asset 就覆盖）
+        run: |
+          if [ -z "$TAG" ]; then TAG="$(gh release view --json tagName -q .tagName)"; fi
+          gh release upload "$TAG" ./*.tgz --clobber
+          echo "https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename ./*.tgz)"
+
+      - name: 写出可直接安装的地址
+        run: |
+          if [ -z "$TAG" ]; then TAG="$(gh release view --json tagName -q .tagName)"; fi
+          URL="https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename ./*.tgz)"
+          echo "### 安装（tarball 直连）" >> "$GITHUB_STEP_SUMMARY"
+          echo '```sh' >> "$GITHUB_STEP_SUMMARY"
+          echo "dsh plugin --profile web add $URL" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          curl -sIL "$URL" | head -3
