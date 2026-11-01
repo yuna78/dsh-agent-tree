@@ -96,6 +96,7 @@ function rewritePackageJson() {
 // ------------------------------------------------------------------ 执行
 // 重建时保留公开仓的 .git（发布历史就在 dist/public，别一起删掉）
 const gitBackup = join(ROOT, 'dist', '.public-git-backup');
+mkdirSync(dirname(gitBackup), { recursive: true }); // ROOT/dist 不存在（比如从临时 worktree 跑）时先建
 const gitDir = join(OUT, '.git');
 if (existsSync(gitDir)) {
   rmSync(gitBackup, { recursive: true, force: true });

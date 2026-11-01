@@ -177,8 +177,7 @@ dsh plugin --profile web add "$PWD"
 （AppKit + WKWebView），里面跑的**还是那套 MiniInner 组件与皮肤**——页内卡片和桌面浮窗是同一个东西的两种摆放。
 
 ```sh
-npm run dock:build                       # swiftc 编译 + 收集渲染页（无第三方依赖）
-./desktop/build/dsh-agent-tree-dock      # 或一步：npm run dock
+npx -p dsh-plugin-agent-tree dsh-agent-tree-dock   # 一条命令；首次运行自动编译（无第三方依赖）
 ```
 
 - **数据一秒一拍**：浏览器端卡片把裁剪后的渲染快照 POST 给宿主；壳带握手 token

@@ -25,8 +25,11 @@ DSH 页面（浏览器）                          桌面壳（desktop/ 产物�
 插件本身 npm 安装即可；桌面壳是本地编译的小二进制（无第三方依赖，swiftc 一条命令）：
 
 ```bash
-npm run dock:build                       # = bash desktop/build.sh
-./desktop/build/dsh-agent-tree-dock      # 或一步：npm run dock
+# 装好插件后，浮窗还要单独启动（它是个独立进程，装插件不会自动拉起）
+npx -p dsh-plugin-agent-tree dsh-agent-tree-dock        # 首次运行会自动编译
+
+# 或者在插件包目录里（~/.dsh/profiles/<profile>/node_modules/dsh-plugin-agent-tree）
+npm run dock          # = docker:build + 启动
 ```
 
 前提：
@@ -82,6 +85,7 @@ npm run dock:build                       # = bash desktop/build.sh
 | --- | --- |
 | 「等待 DSH 页面连接…」不消失 | ① dsh 是否在跑：`ls ~/.dsh/agent-tree-dock-*.json`；② 浏览器页面是否开着（地址栏要有这个 dsh 实例）；③ `--verbose` 看轮询日志是 200 还是 401/连接拒绝 |
 | 401 | DSH 重启过、token 轮换了：正常情况下壳会自愈；一直 401 就重启壳（它会重读最新握手文件） |
+| **在 DSH 里拖卡片，拖不出窗口** | 页内卡片永远出不了浏览器窗口（网页画不到视口外），这是物理边界。要「跑到窗口外」得启动桌面浮窗（见上）：`npx -p dsh-plugin-agent-tree dsh-agent-tree-dock` |
 | 卡片点不动 / 拖不动 | `--verbose` 看 `pass rects` 数量；为 0 说明页面还没上报布局，等 1 秒，或 `--reset` 复位 |
 | 窗口高度和卡片对不上 | 收起 / 展开一次让它重新量；仍异常带 `--verbose` 截 `layout` 日志反馈 |
 | **浮窗内容和 DSH 里那个卡片对不上** | 浮窗镜像的是「某一个实例的页面」发布的快照（发现时优先挑活跃的那个，也可 `--origin=` 指定）。桌面 App 还没升到 0.1.6 时，App 自己的页面发不了快照，浮窗只能连别的实例——它的树看不到 App 里**正在跑**的会话（其它实例的运行事件流它收不到），这是数据边界不是 bug；App 升级重启后两者 1:1。 |

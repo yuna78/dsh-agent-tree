@@ -141,8 +141,7 @@ as the dsh-maoxuan-pet desktop pet: a transparent, borderless, always-on-top sma
 and the docked card are one thing arranged twice.
 
 ```sh
-npm run dock:build                       # swiftc build + collect the page assets (no 3rd-party deps)
-./desktop/build/dsh-agent-tree-dock      # or one step: npm run dock
+npx -p dsh-plugin-agent-tree dsh-agent-tree-dock   # one command; builds on first run (no 3rd-party deps)
 ```
 
 - **One snapshot per second**: the browser card POSTs a pruned render snapshot to the host; the

@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
     const INSTANCE_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 
     /** 客户端半部的版本；必须和 package.json 的 version 一致（verify/smoke.mjs 会校验）。 */
-    const PLUGIN_VERSION = '0.1.6';
+    const PLUGIN_VERSION = '0.1.7';
     /** 检查更新：只在用户点按钮时请求一次 npm registry（公开、只读、带 CORS 的 GET）。 */
     const NPM_PACKAGE_NAME = 'dsh-plugin-agent-tree';
     const NPM_LATEST_URL = 'https://registry.npmjs.org/dsh-plugin-agent-tree/latest';

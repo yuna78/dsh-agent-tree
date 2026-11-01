@@ -48,12 +48,97 @@ final class DockWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
+// MARK: - 拖动条：透明原生视图，mouseDown 直接交给系统 performDrag
+//
+// 为什么不用网页里的 pointer 事件：WKWebView 里边框窗口的第一下点击会先被
+// 「激活窗口」吃掉，Pointer Events 的捕获也时灵时不灵——原生 performDrag
+// 是 AppKit 自己的拖窗实现，跟系统行为完全一致，也不受页面 JS 影响。
+
+final class DragStripView: NSView {
+    weak var webView: WKWebView?
+    /// 拖完记一次位置（原生 performDrag 绕过了网页那套 dragend 消息）
+    var onDragEnd: (() -> Void)?
+
+    /// 窗口未激活时也要接第一下点击（否则第一拖永远变成「激活窗口」）。
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window, window.isVisible else { return }
+        // .accessory 应用 + 无边框窗口：先让 App / 窗口成为激活态，
+        // 否则 performDrag 可能被系统静默忽略（表现就是「拖不动、也没报错」）。
+        if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+        if !window.isKeyWindow { window.makeKey() }
+
+        let before = window.frame.origin
+        Shell.log("drag: down key=\(window.isKeyWindow) active=\(NSApp.isActive)")
+        // 阻塞：系统在这里跟踪整段拖动，松手才返回
+        window.performDrag(with: event)
+        if window.frame.origin != before {
+            Shell.log("drag: performDrag moved")
+            onDragEnd?()
+            return // 真拖动过：不要再补 click
+        }
+        // performDrag 没生效：自己跟踪鼠标拖动（同样能挪窗，只是少一点系统手感）
+        Shell.log("drag: performDrag no-op → manual")
+        manualDrag(from: event)
+    }
+
+    /// performDrag 失效时的兜底：嵌套事件循环手动挪窗。
+    private func manualDrag(from event: NSEvent) {
+        guard let window else { return }
+        let startOrigin = window.frame.origin
+        let startMouse = NSEvent.mouseLocation
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if next.type == .leftMouseUp { break }
+            let now = NSEvent.mouseLocation
+            var frame = window.frame
+            frame.origin = NSPoint(
+                x: startOrigin.x + (now.x - startMouse.x),
+                y: startOrigin.y + (now.y - startMouse.y)
+            )
+            window.setFrame(clamped(frame), display: true)
+        }
+        let moved = abs(window.frame.origin.x - startOrigin.x) + abs(window.frame.origin.y - startOrigin.y) > 1
+        Shell.log("drag: manual moved=\(moved)")
+        if moved {
+            onDragEnd?()
+            return
+        }
+        // 真的只是一下点击：把 click 还给页面（胶囊展开等）
+        injectTap(at: convert(event.locationInWindow, from: nil))
+    }
+
+    /// 位置收敛（与 ShellController.fitToScreen 同规则：整窗收进可见区域）。
+    private func clamped(_ frame: NSRect) -> NSRect {
+        let screen = NSScreen.screens.first { $0.visibleFrame.intersects(frame) } ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        var result = frame
+        result.origin.x = min(max(result.origin.x, visible.minX), max(visible.minX, visible.maxX - result.width))
+        result.origin.y = min(max(result.origin.y, visible.minY), max(visible.minY, visible.maxY - result.height))
+        return result
+    }
+
+    private func injectTap(at point: NSPoint) {
+        guard let webView else { return }
+        // 容器坐标（左下原点）→ 页面 CSS 坐标（左上原点）
+        let cssX = Int(point.x)
+        let cssY = Int(webView.bounds.height - point.y)
+        let source = "window.__dockTapAt && window.__dockTapAt(\(cssX), \(cssY));"
+        webView.evaluateJavaScript(source, completionHandler: nil)
+    }
+}
+
 // MARK: - 点击穿透容器：白名单矩形之外，鼠标事件全部放行给桌面
 
 final class ClickThroughView: NSView {
     weak var webView: WKWebView?
+    weak var dragStrip: DragStripView?
     /// 容器本地坐标（左下原点）；矩形之外 hitTest 返回 nil → 点击落到下层窗口。
     var passRects: [CGRect] = []
+    /// 可拖区域（卡片头部 / 胶囊）：交给原生拖动条。
+    var dragRect: CGRect = .zero
+    /// 拖区里的「洞」：头部按钮等，仍要留给网页（换肤 / 检查更新 / 最小化）。
+    var dragHoles: [CGRect] = []
 
     override func hitTest(_ aPoint: NSPoint) -> NSView? {
         let local: NSPoint
@@ -61,6 +146,9 @@ final class ClickThroughView: NSView {
             local = convert(aPoint, from: superview)
         } else {
             local = aPoint
+        }
+        if dragRect.contains(local), !dragHoles.contains(where: { $0.contains(local) }) {
+            return dragStrip
         }
         for rect in passRects where rect.contains(local) {
             return webView
@@ -123,13 +211,17 @@ final class ShellController: NSObject, NSApplicationDelegate, WKNavigationDelega
     private var dragBaseOrigin: NSPoint?
     /// 页面上报的可交互矩形（CSS px，左上原点）；窗口高度变化时重算 passRects
     private var pendingHits: [[String: Any]] = []
+    /// 可拖区域（卡片头部 / 胶囊）与其中的按钮「洞」（CSS px，左上原点）
+    private var pendingDrag: [String: Any]?
+    private var pendingHoles: [[String: Any]] = []
 
     // MARK 生命周期
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let content = NSRect(x: 0, y: 0, width: Shell.windowWidth, height: Shell.defaultHeight)
         let window = DockWindow(
-            contentRect: restoredFrame() ?? defaultFrame(),
+            // 记住的位置也收回可见区域：换过屏幕 / 分辨率变了不至于整窗落在屏幕外
+            contentRect: fitToScreen(restoredFrame() ?? defaultFrame()),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -161,6 +253,15 @@ final class ShellController: NSObject, NSApplicationDelegate, WKNavigationDelega
 
         container.webView = webView
         container.addSubview(webView)
+
+        // 拖动条盖在网页之上：卡片头部 / 胶囊的按下由原生接管，拖窗不依赖页面 JS
+        let strip = DragStripView(frame: container.bounds)
+        strip.webView = webView
+        strip.autoresizingMask = []
+        strip.onDragEnd = { [weak self] in self?.persistFrame() }
+        container.addSubview(strip)
+        container.dragStrip = strip
+
         window.contentView = container
 
         self.window = window
@@ -173,6 +274,13 @@ final class ShellController: NSObject, NSApplicationDelegate, WKNavigationDelega
             FileHandle.standardError.write(Data("[agent-tree-dock] 找不到 dock.html（应与可执行文件同目录，重新 npm run dock:build）\n".utf8))
             NSApp.terminate(nil)
             return
+        }
+
+        // 右键统一走原生菜单（拖动条盖住了头部，网页里的 contextmenu 收不到头部右键）
+        NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+            guard let self, event.window === self.window else { return event }
+            self.showNativeMenu()
+            return nil
         }
 
         window.orderFrontRegardless()
@@ -242,28 +350,40 @@ final class ShellController: NSObject, NSApplicationDelegate, WKNavigationDelega
         persistFrame()
     }
 
-    /// 拖拽落点收敛：窗口至少留 140pt 在可见区域内，防止拖丢。
+    /// 位置收敛：整窗收进可见区域。
+    /// 浮窗是「窗口即内容」（卡片只是框里的留白），露出半截等于把卡片切断，
+    /// 所以不像普通窗口那样允许半出屏，而是贴边停住。
     private func fitToScreen(_ frame: NSRect) -> NSRect {
         let screen = NSScreen.screens.first { $0.visibleFrame.intersects(frame) } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         var result = frame
-        result.origin.x = min(max(result.origin.x, visible.minX - result.width + 140), visible.maxX - 140)
-        result.origin.y = min(max(result.origin.y, visible.minY - result.height + 140), visible.maxY - 40)
+        let maxX = max(visible.minX, visible.maxX - result.width)
+        let maxY = max(visible.minY, visible.maxY - result.height)
+        result.origin.x = min(max(result.origin.x, visible.minX), maxX)
+        result.origin.y = min(max(result.origin.y, visible.minY), maxY)
         return result
     }
 
     /// 页面上报的 CSS 矩形（左上原点）→ 容器本地坐标（左下原点）。
+    private func cssRect(_ dict: [String: Any]) -> CGRect? {
+        guard let x = (dict["x"] as? NSNumber)?.doubleValue,
+              let y = (dict["y"] as? NSNumber)?.doubleValue,
+              let w = (dict["w"] as? NSNumber)?.doubleValue,
+              let h = (dict["h"] as? NSNumber)?.doubleValue,
+              w > 0, h > 0 else { return nil }
+        return CGRect(x: x, y: webView.bounds.height - (y + h), width: w, height: h)
+    }
+
     private func applyPassRects() {
         let contentHeight = webView.bounds.height
-        clickView.passRects = pendingHits.compactMap { dict in
-            guard let x = (dict["x"] as? NSNumber)?.doubleValue,
-                  let y = (dict["y"] as? NSNumber)?.doubleValue,
-                  let w = (dict["w"] as? NSNumber)?.doubleValue,
-                  let h = (dict["h"] as? NSNumber)?.doubleValue,
-                  w > 0, h > 0 else { return nil }
-            return CGRect(x: x, y: contentHeight - (y + h), width: w, height: h)
-        }
-        Shell.log("pass rects: \(clickView.passRects.count) height: \(Int(contentHeight))")
+        clickView.passRects = pendingHits.compactMap(cssRect)
+        clickView.dragRect = pendingDrag.flatMap(cssRect) ?? .zero
+        clickView.dragHoles = pendingHoles.compactMap(cssRect)
+        // 拖动条本身也铺满窗口，靠容器的 hitTest 决定什么时候轮到它
+        clickView.dragStrip?.frame = clickView.bounds
+        Shell.log(
+            "pass rects: \(clickView.passRects.count) drag: \(clickView.dragRect.width > 0) holes: \(clickView.dragHoles.count) height: \(Int(contentHeight))"
+        )
     }
 
     // MARK 握手
@@ -274,13 +394,23 @@ final class ShellController: NSObject, NSApplicationDelegate, WKNavigationDelega
             Shell.log("no agent-tree-dock-*.json under \(dshHome()) — DSH 没起，或插件没装/没重启")
             return
         }
-        // 多个实例时优先挑「正被浏览器发布」的那个（快照 30s 内新鲜），
-        // 避免连到一个没人开页面的实例；全都停着就用最新的，等它的页面连上来。
-        let live = candidates.first { isLive($0) }
-        let adopted = live ?? newest
+        // 选实例的顺序：上次用过的（记住） → 第一个「正被浏览器发布」的 → 最新的文件。
+        // 同机常有好几个 dsh（桌面 App + 几个 dsh web），记住选择比每次按 mtime 猜更稳。
+        let saved = Shell.defaults.string(forKey: "origin") ?? ""
+        var chosen: Descriptor?
+        var reason = "（暂无活跃发布者，先用最新文件）"
+        if !saved.isEmpty, let remembered = candidates.first(where: { $0.origin == saved }), isLive(remembered) {
+            chosen = remembered
+            reason = "（上次用的实例）"
+        } else if let live = candidates.first(where: { isLive($0) }) {
+            chosen = live
+            reason = "（活跃）"
+        }
+        let adopted = chosen ?? newest
         Shell.origin = adopted.origin
         Shell.token = adopted.token
-        Shell.log("descriptor: \(adopted.path) → \(adopted.origin)\(live == nil ? "（暂无活跃发布者，先用最新文件）" : "（活跃）")")
+        Shell.defaults.set(adopted.origin, forKey: "origin")
+        Shell.log("descriptor: \(adopted.path) → \(adopted.origin)\(reason)")
     }
 
     /// 同步探测一个候选实例：带它的 token 拉一次 state，看有没有浏览器在发布。
@@ -475,8 +605,14 @@ final class ShellController: NSObject, NSApplicationDelegate, WKNavigationDelega
             // 可交互矩形 + 期望的窗口尺寸（内容外沿 + 留白）
             if let hits = body["hit"] as? [[String: Any]] {
                 pendingHits = hits
-                applyPassRects()
             }
+            if let drag = body["drag"] as? [String: Any] {
+                pendingDrag = drag
+            }
+            if let holes = body["holes"] as? [[String: Any]] {
+                pendingHoles = holes
+            }
+            applyPassRects()
             if let height = (body["size"] as? [String: Any])?["h"] as? NSNumber {
                 setContentHeight(CGFloat(height.doubleValue))
             }
@@ -519,6 +655,26 @@ final class ShellController: NSObject, NSApplicationDelegate, WKNavigationDelega
         let encoded = Data(text.utf8).base64EncodedString()
         evaluate("window.__dockStateB64 && window.__dockStateB64('\(encoded)');")
     }
+
+    /// 右键菜单：和页面里那套菜单同样的三个动作，但由 AppKit 画（更符合原生窗口）。
+    private func showNativeMenu() {
+        let menu = NSMenu()
+        let focus = NSMenuItem(title: "打开 DSH", action: #selector(menuFocus), keyEquivalent: "")
+        focus.target = self
+        let reset = NSMenuItem(title: "复位位置", action: #selector(menuReset), keyEquivalent: "")
+        reset.target = self
+        let quit = NSMenuItem(title: "退出浮窗", action: #selector(menuQuit), keyEquivalent: "")
+        quit.target = self
+        for item in [focus, reset, quit] {
+            menu.addItem(item)
+        }
+        // nil view = 屏幕坐标（NSEvent.mouseLocation 就是屏幕坐标）
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+
+    @objc private func menuFocus() { activateDSH() }
+    @objc private func menuReset() { resetFrame() }
+    @objc private func menuQuit() { NSApp.terminate(nil) }
 
     private func handleConfig(_ action: String?) {
         switch action {

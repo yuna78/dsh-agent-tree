@@ -142,8 +142,16 @@
 
     // 可点区域 = 卡片/胶囊本体（皮肤菜单、更新面板都在卡片里面）；装饰伸出去的部分点击穿透。
     const hit = [inset(cardRect, 2)];
-    const menu = document.getElementById('dock-menu');
-    if (menu !== null) hit.push(inset(menu.getBoundingClientRect(), 2));
+
+    // 可拖区域：展开时是卡片头部，收起时是整个胶囊（原生拖动条接管，不依赖页面 JS）。
+    const handle = rootEl.querySelector('.dsh-agent-tree-head') || rootEl.querySelector('.dsh-agent-tree-pill');
+    const drag = handle === null ? null : inset(handle.getBoundingClientRect(), 0);
+    // 头部里的按钮要留给网页（换肤 / 检查更新 / 最小化）：在拖区上报成「洞」。
+    const holes = [];
+    for (const button of rootEl.querySelectorAll('.dsh-agent-tree-head button')) {
+      const rect = button.getBoundingClientRect();
+      if (rect.width > 0) holes.push(inset(rect, 0));
+    }
 
     // 内容外沿（含伸出去的装饰）决定原生窗口要多大；窗口宽固定，高度取内容最下沿。
     let right = cardRect.right;
@@ -155,10 +163,10 @@
       bottom = Math.max(bottom, rect.bottom);
     }
     const size = { w: Math.ceil(right + 24), h: Math.ceil(bottom + PAD_BOTTOM) };
-    const layout = JSON.stringify({ hit, size });
+    const layout = JSON.stringify({ hit, size, drag, holes });
     if (layout === lastLayout) return;
     lastLayout = layout;
-    send({ type: 'layout', hit, size });
+    send({ type: 'layout', hit, size, drag, holes });
   }
 
   // 装饰图片是异步解码的 data URL，渲染完立刻量可能量小了；
@@ -166,124 +174,17 @@
   window.setInterval(reportLayout, 400);
   window.addEventListener('resize', reportLayout);
 
-  // ------------------------------------------------------------ 窗口拖动
+  // ------------------------------------------------------------ 点击注入
 
-  let drag = null;
-  let suppressClickUntil = 0;
-
-  document.addEventListener(
-    'pointerdown',
-    (event) => {
-      if (event.button !== 0) return;
-      const handle =
-        event.target.closest && event.target.closest('.dsh-agent-tree-head, .dsh-agent-tree-pill');
-      if (!handle) return;
-      if (event.target.closest('button, a, input, textarea, select')) return;
-      // 拦下 MiniInner 自己的页内拖动（React 18 的事件挂在 root 上，capture 先到），
-      // 位移改交给原生层挪整个窗口。
-      event.stopPropagation();
-      drag = { x: event.screenX, y: event.screenY, moved: false, pointerId: event.pointerId };
-      try {
-        handle.setPointerCapture(event.pointerId);
-      } catch (err) {
-        /* 不能捕获就用全局 move 兜底 */
-      }
-    },
-    true,
-  );
-
-  document.addEventListener(
-    'pointermove',
-    (event) => {
-      if (drag === null || event.pointerId !== drag.pointerId) return;
-      const dx = event.screenX - drag.x;
-      const dy = event.screenY - drag.y;
-      if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) {
-        drag.moved = true;
-        send({ type: 'dragstart' });
-      }
-      if (drag.moved) send({ type: 'dragto', dx, dy });
-    },
-    true,
-  );
-
-  const endDrag = (event) => {
-    if (drag === null || event.pointerId !== drag.pointerId) return;
-    const moved = drag.moved;
-    drag = null;
-    if (moved) {
-      // 拖完的那一下 click 不该触发胶囊展开 / 行点击
-      suppressClickUntil = Date.now() + 120;
-      send({ type: 'dragend' });
-    }
+  // 拖动条的鼠标按下由原生层接管（见 dock.swift 的 performDrag）：
+  // 轻点一下（没有移动窗口）时，原生层回调这里，把 click 还给页面。
+  window.__dockTapAt = (x, y) => {
+    const target = document.elementFromPoint(x, y);
+    if (target === null) return;
+    target.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }),
+    );
   };
-  document.addEventListener('pointerup', endDrag, true);
-  document.addEventListener('pointercancel', endDrag, true);
-  document.addEventListener(
-    'click',
-    (event) => {
-      if (Date.now() < suppressClickUntil) {
-        event.stopPropagation();
-        event.preventDefault();
-      }
-    },
-    true,
-  );
-
-  // ------------------------------------------------------------ 右键菜单
-
-  function hideMenu() {
-    const menu = document.getElementById('dock-menu');
-    if (menu !== null) menu.remove();
-  }
-
-  function showMenu(x, y) {
-    hideMenu();
-    const menu = document.createElement('div');
-    menu.id = 'dock-menu';
-    for (const [label, action] of [
-      ['打开 DSH', 'focus'],
-      ['复位位置', 'reset'],
-      ['退出浮窗', 'quit'],
-    ]) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.textContent = label;
-      button.addEventListener('click', () => {
-        hideMenu();
-        send({ type: 'config', action });
-      });
-      menu.appendChild(button);
-    }
-    document.body.appendChild(menu);
-    const rect = menu.getBoundingClientRect();
-    menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - rect.width - 8))}px`;
-    menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - 8))}px`;
-    requestAnimationFrame(reportLayout);
-  }
-
-  document.addEventListener(
-    'contextmenu',
-    (event) => {
-      const handle =
-        event.target.closest && event.target.closest('.dsh-agent-tree-head, .dsh-agent-tree-pill');
-      if (!handle) return;
-      event.preventDefault();
-      showMenu(event.clientX, event.clientY);
-    },
-    true,
-  );
-  document.addEventListener(
-    'pointerdown',
-    (event) => {
-      if (event.target.closest && event.target.closest('#dock-menu')) return;
-      hideMenu();
-    },
-    true,
-  );
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') hideMenu();
-  });
 
   // ------------------------------------------------------------ 启动
 

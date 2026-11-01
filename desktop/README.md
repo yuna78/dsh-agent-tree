@@ -17,9 +17,11 @@ DSH 页面（浏览器）                       桌面壳（本目录产物）
 ## 使用
 
 ```bash
-npm run dock:build          # swiftc 编译 + 收集 dock.html/css/js、client.js、vendor/ 到 desktop/build/
-./desktop/build/dsh-agent-tree-dock
-# 或者一步：npm run dock
+# 装了 npm 包的机器上，一条命令就够（首次运行会自动编译）
+npx -p dsh-plugin-agent-tree dsh-agent-tree-dock
+
+# 在包目录里开发时
+npm run dock                # swiftc 编译 + 拉起（产物在 desktop/build/）
 ```
 
 前提：本机有一个装了 dsh-plugin-agent-tree 的 dsh 实例在跑，且它的 web 页面在某个浏览器里
