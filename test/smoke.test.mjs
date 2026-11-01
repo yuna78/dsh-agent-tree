@@ -1,11 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import {
   parseProcessTable,
   detectAgent,
   argCwd,
   buildProcessRoots,
   childLabel,
+  isCodexBackend,
+  isClaudeDesktop,
+  codexRowActivity,
   parseRolloutMeta,
   codexThreadsUnder,
   codexHome,
@@ -15,6 +22,19 @@ import {
   promptTitleOf,
   pickCodexRoot,
   parseLsofSessions,
+  acceptDockState,
+  dockDescriptorPath,
+  dockOnline,
+  dockSnapshot,
+  dockTokenLength,
+  dockTokenMatches,
+  noteDockSeen,
+  publishDockDescriptor,
+  queueDockAction,
+  readJsonBody,
+  resetDockBridge,
+  takeDockActions,
+  dockTokenValue,
 } from '../index.js';
 
 /**
@@ -401,6 +421,82 @@ test('host buildProcessRoots nests helper children under the CLI', () => {
   assert.deepEqual(roots.find((root) => root.kind === 'claude').children, []);
 });
 
+test('host marks desktop backends and the Claude desktop app, but not its helpers', () => {
+  const appServer = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex app-server --listen stdio://';
+  const appServerFlags = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex -c x app-server';
+  const claudeApp = '/Applications/Claude.app/Contents/MacOS/Claude';
+  const claudeHelper =
+    '/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=audio.mojom.AudioService';
+  const codexRenderer =
+    '/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/1/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=renderer';
+
+  assert.equal(isCodexBackend(appServer), true, 'ChatGPT 桌面端的 codex app-server 是常驻后端');
+  assert.equal(isCodexBackend(appServerFlags), true, '旗标夹在中间也是后端');
+  assert.equal(isCodexBackend('/opt/homebrew/bin/codex exec "go"'), false, '真 CLI 不是后端');
+  assert.equal(isClaudeDesktop(claudeApp), true, 'Claude 桌面版主进程');
+  assert.equal(isClaudeDesktop(claudeHelper), false, 'Claude Helper 不是主进程');
+  assert.equal(isClaudeDesktop(codexRenderer), false, 'Codex Framework 渲染进程不受影响');
+
+  const rows = parseProcessTable(
+    [
+      `  900  1  07:46:21  0.0 ${appServer}`,
+      `  901  1  04:28:59  0.0 ${claudeApp}`,
+      `  902  901  04:28:59  0.0 ${claudeHelper}`,
+      `  903  1  07:44:46  0.0 ${codexRenderer}`,
+    ].join('\n'),
+  );
+  assert.equal(rows[0].backend, true);
+  assert.equal(rows[0].kind, 'codex');
+  assert.equal(rows[1].desktop, true, 'Claude 桌面版主进程带 desktop 标记');
+  assert.equal(rows[1].kind, 'claude', '大写 Claude 也能进树');
+  assert.equal(rows[2].kind, null, 'Helper 不是根');
+  assert.equal(rows[3].kind, null, 'Codex 渲染进程不是根');
+
+  const roots = buildProcessRoots(rows);
+  assert.equal(roots.length, 2, 'app-server 和 Claude 主进程两个根');
+  const claudeRoot = roots.find((root) => root.desktop === true);
+  assert.equal(claudeRoot.pid, 901);
+  assert.deepEqual(
+    claudeRoot.children.map((child) => child.label),
+    ['helper'],
+    'Helper 作为子进程挂在 Claude 桌面版下',
+  );
+});
+
+test('codexRowActivity hides idle desktop backends but keeps real CLIs dimmed', () => {
+  const now = 1_000_000_000_000;
+  const freshRoot = { mtime: now - 30 * 1000 };
+  const staleRoot = { mtime: now - 20 * 60 * 1000 };
+  const freshThread = { idleSeconds: 10 };
+
+  assert.deepEqual(codexRowActivity(now, freshRoot, [], true), { active: true, idleSeconds: 30 }, '后端刚有活动：显示且亮');
+  assert.equal(
+    codexRowActivity(now, staleRoot, [], true),
+    null,
+    '后端 20 分钟没活动：整行不返回（活着 ≠ 有会话）',
+  );
+  assert.equal(codexRowActivity(now, undefined, [], true), null, '后端认领不到 rollout：不挂行');
+  assert.deepEqual(
+    codexRowActivity(now, staleRoot, [freshThread], true),
+    { active: true, idleSeconds: 10 },
+    '子线程还在动就算有活动',
+  );
+  assert.deepEqual(
+    codexRowActivity(now, staleRoot, [], false),
+    { active: false, idleSeconds: 1200 },
+    '真 CLI 没有活动也显示（进程活着），只是圆点变灰',
+  );
+  assert.deepEqual(
+    codexRowActivity(now, undefined, [], false),
+    { active: false, idleSeconds: Infinity },
+    'CLI 认领不到 rollout：显示但灰点',
+  );
+  assert.deepEqual(codexRowActivity(now, staleRoot, [{ idleSeconds: 60 }], false), {
+    active: true,
+    idleSeconds: 60,
+  }, 'CLI 的子线程在动：亮');
+});
+
 test('host childLabel turns ps commands into readable labels', () => {
   assert.equal(childLabel('/x/Resources/cua_node/bin/node ./server.mjs'), 'computer use');
   assert.equal(childLabel('/x/cua_node/bin/node_repl'), 'computer use');
@@ -410,19 +506,9 @@ test('host childLabel turns ps commands into readable labels', () => {
   assert.equal(childLabel('/usr/local/bin/rg foo'), 'rg');
 });
 
-test('client groups process children by label', () => {
-  const { groupProcessChildren } = clientModule.__test;
-  const groups = groupProcessChildren([
-    { label: 'computer use', elapsedSeconds: 100, cpu: 0 },
-    { label: 'computer use', elapsedSeconds: 300, cpu: 1.5 },
-    { label: 'MCP', elapsedSeconds: 50, cpu: 0 },
-  ]);
-  assert.equal(groups.length, 2);
-  assert.equal(groups[0].label, 'computer use', '数量多的排前面');
-  assert.equal(groups[0].count, 2);
-  assert.equal(groups[0].elapsedSeconds, 300, '显示最长的那个');
-  assert.equal(groups[1].label, 'MCP');
-  assert.deepEqual(groupProcessChildren(undefined), []);
+test('client drops child-process rows: no groupProcessChildren anymore', () => {
+  assert.equal(clientModule.__test.groupProcessChildren, undefined, '归组函数已移除，外部 agent 不再出子进程行');
+  assert.equal(clientModule.__test.MiniInner !== undefined, true, 'MiniInner 仍可用');
 });
 
 // ------------------------------------------------------------ codex 子对话
@@ -846,4 +932,286 @@ test('parseLsofSessions 抓的是带 session- 前缀的会话 id（和客户端�
   ]);
   assert.deepEqual(parseLsofSessions(''), []);
   assert.deepEqual(parseLsofSessions(null), []);
+});
+
+// ---------------------------------------------------------------- 桌面浮窗桥
+//
+// 原生壳没有浏览器 cookie，所以走「描述文件里的 token」；浏览器发布走 DSH 连接鉴权。
+// 这里把三条接口背后的纯逻辑钉住：描述文件、快照校验、心跳、点击队列、body 上限。
+
+test('dock descriptor：每个端口一个 0600 文件，只有 origin / port / token', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-agent-tree-dock-'));
+  try {
+    const path = dockDescriptorPath(4321, dir);
+    assert.equal(path, join(dir, 'agent-tree-dock-4321.json'));
+    const written = await publishDockDescriptor({
+      origin: 'http://127.0.0.1:4321',
+      port: 4321,
+      profile: 'web',
+      pid: 4242,
+      home: dir,
+      token: 'a'.repeat(48),
+    });
+    assert.equal(written, path);
+    assert.equal((await stat(path)).mode & 0o777, 0o600, 'token 文件不能给同机其它用户读');
+    const parsed = JSON.parse(await readFile(path, 'utf8'));
+    assert.deepEqual(
+      { origin: parsed.origin, port: parsed.port, profile: parsed.profile, pid: parsed.pid, token: parsed.token },
+      { origin: 'http://127.0.0.1:4321', port: 4321, profile: 'web', pid: 4242, token: 'a'.repeat(48) },
+    );
+    await assert.rejects(() => publishDockDescriptor({ origin: 'x', port: 0, home: dir }), /port/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('dock state：只收 v1 + tree，unchanged 必须已有上一帧', () => {
+  resetDockBridge();
+  assert.equal(acceptDockState({ v: 1, tree: { groups: [] } }, 1000), true);
+  assert.equal(acceptDockState({ v: 2, tree: {} }, 1000), false);
+  assert.equal(acceptDockState({ v: 1, tree: [] }, 1000), false);
+  assert.equal(acceptDockState({ v: 1 }, 1000), false);
+  assert.equal(acceptDockState(null, 1000), false);
+  assert.equal(acceptDockState({ v: 1, unchanged: true }, 5000), true, '心跳帧保留上一份快照');
+  const snap = dockSnapshot(5000);
+  assert.equal(snap.hasState, true);
+  assert.equal(snap.stateAt, 5000);
+  resetDockBridge();
+  assert.equal(acceptDockState({ v: 1, unchanged: true }, 6000), false, '没有上一帧时不能假装有');
+});
+
+test('dock heartbeat：原生壳拉过之后 15 秒内算在线', () => {
+  resetDockBridge();
+  assert.equal(dockOnline(1000), false);
+  noteDockSeen(1000);
+  assert.equal(dockOnline(1000), true);
+  assert.equal(dockOnline(1000 + 14_999), true);
+  assert.equal(dockOnline(1000 + 15_000), false, '超过窗口就当壳关掉了');
+  resetDockBridge();
+});
+
+test('dock actions：只收 open + 合法 id，取走即清空，最多攒 8 条', () => {
+  resetDockBridge();
+  assert.equal(queueDockAction({ action: 'open', id: 'session-a' }), true);
+  assert.equal(queueDockAction({ action: 'open', id: '   ' }), false);
+  assert.equal(queueDockAction({ action: 'open', id: 'x'.repeat(201) }), false);
+  assert.equal(queueDockAction({ action: 'quit', id: 'session-a' }), false);
+  assert.equal(queueDockAction(null), false);
+  for (let index = 0; index < 12; index += 1) queueDockAction({ action: 'open', id: `session-${index}` });
+  const drained = takeDockActions();
+  assert.equal(drained.length, 8, '队列有上限，丢掉最旧的');
+  assert.deepEqual(
+    drained.map((item) => item.id),
+    ['session-4', 'session-5', 'session-6', 'session-7', 'session-8', 'session-9', 'session-10', 'session-11'],
+  );
+  assert.equal(takeDockActions().length, 0, '取走即清空：一次点击只执行一次');
+});
+
+test('dock token：48 位随机串，长度不等直接拒，相等才放行', () => {
+  assert.equal(dockTokenLength(), 48);
+  assert.equal(dockTokenMatches('a'.repeat(48), 'a'.repeat(48)), true);
+  assert.equal(dockTokenMatches('a'.repeat(48), 'b'.repeat(48)), false);
+  assert.equal(dockTokenMatches('a'.repeat(47), 'a'.repeat(48)), false);
+  assert.equal(dockTokenMatches(undefined, 'a'.repeat(48)), false);
+  assert.equal(dockTokenMatches(['a'.repeat(48)], 'a'.repeat(48)), true, 'Node 会把重复 header 给成数组');
+});
+
+test('dock body：超过上限立刻 413 语义（E_TOO_LARGE），合法 JSON 正常解析', async () => {
+  assert.deepEqual(await readJsonBody(Readable.from([Buffer.from('{"v":1}')]), 1024), { v: 1 });
+  assert.deepEqual(await readJsonBody(Readable.from([]), 1024), {});
+  await assert.rejects(
+    () => readJsonBody(Readable.from([Buffer.alloc(2048, 97)]), 1024),
+    (error) => error.code === 'E_TOO_LARGE',
+  );
+  await assert.rejects(() => readJsonBody(Readable.from([Buffer.from('{oops')]), 1024), SyntaxError);
+});
+
+test('dockPayload：只发布卡片会读的字段，会话/状态按需裁剪', () => {
+  const { selectActiveTree, dockPayload } = clientModule.__test;
+  const sessions = {
+    ids: ['c1', 's1', 'i1', 'i2', 'unrelated'],
+    byId: {
+      c1: {
+        id: 'c1',
+        displayTitle: '会话一',
+        updatedAt: 900,
+        running: true,
+        projectionValues: { modelSelection: { next: { model: 'deepseek-v4.1-pro' } }, messages: ['很长的对话内容'] },
+      },
+      s1: { id: 's1', displayTitle: '子代理', parentId: 'c1', origin: 'subagent', updatedAt: 800, running: true },
+      // 下面两条是「本机其它实例」要用的会话（实例只给 id，标题要从会话表拿）
+      i1: { id: 'i1', displayTitle: '别的端口会话', updatedAt: 700, running: true },
+      i2: { id: 'i2', displayTitle: '别的端口子代理', parentId: 'i1', origin: 'subagent', updatedAt: 600, running: true },
+      unrelated: { id: 'unrelated', displayTitle: '不该出现在快照里', updatedAt: 100, running: false },
+    },
+  };
+  const workspaces = { items: [{ workspaceId: 'w1', title: 'proj', path: '/x/proj', sessionIds: ['c1', 's1'] }] };
+  const statuses = new Map([
+    ['c1', { running: true, pendingInteraction: { kind: 'approval', question: '要不要发布？' } }],
+    ['s1', { running: true }],
+    ['i1', { running: true }],
+  ]);
+  const tree = selectActiveTree(sessions, workspaces, statuses, null);
+  const payload = dockPayload({
+    tree,
+    processes: [{ pid: 1, kind: 'codex', label: 'proj', elapsedSeconds: 12 }],
+    instances: [{ pid: 9, ports: [3083], sessionIds: ['i1'] }],
+    sessions,
+    statuses,
+    mode: 'live',
+  });
+
+  assert.equal(payload.v, 1);
+  assert.equal(payload.mode, 'live');
+  assert.deepEqual(payload.tree.groups[0].items[0].row.projectionValues.messages, undefined, '对话内容不发给桌面壳');
+  assert.equal(payload.tree.groups[0].items[0].row.projectionValues.modelSelection.next.model, 'deepseek-v4.1-pro');
+  assert.deepEqual(
+    payload.sessions.ids.sort(),
+    ['i1', 'i2'],
+    '只带本机其它实例的会话（含直接子会话），页内树不用重复带',
+  );
+  assert.equal(payload.sessions.byId.unrelated, undefined);
+  assert.deepEqual(
+    payload.statuses.map(([id]) => id).sort(),
+    ['c1', 'i1', 's1'].sort(),
+    '不在树 / 实例里的状态不发',
+  );
+  const c1 = payload.statuses.find(([id]) => id === 'c1')[1];
+  assert.deepEqual(c1.pendingInteraction, { kind: 'approval' }, '待办只留 kind，不留问题正文');
+  assert.equal(payload.theme, 'light');
+  assert.deepEqual(JSON.parse(JSON.stringify(payload)), payload, '必须能 JSON 序列化（原生壳只吃 JSON）');
+});
+
+test('dockPayload：没有树时返回 null，桌面壳不发布自己', () => {
+  const { dockPayload, dockPublisherDisabled } = clientModule.__test;
+  assert.equal(dockPayload({ tree: null }), null);
+  assert.equal(dockPublisherDisabled(), false, 'Node 默认没有 window.location，按页内处理');
+  globalThis.window.__DSH_AGENT_TREE_DOCK__ = true;
+  assert.equal(dockPublisherDisabled(), true, '桌面壳自己不要再发布');
+  delete globalThis.window.__DSH_AGENT_TREE_DOCK__;
+});
+
+test('宿主 apply 注册的三条路由：鉴权 / 方法 / 壳握手全按约定', async () => {
+  const { apply } = await import('../index.js');
+  const routes = new Map();
+  const disposers = [];
+  const makeCtx = (rejection) => ({
+    effect(fn) {
+      disposers.push(fn() || (() => {}));
+    },
+    get(name) {
+      if (name === 'connection' && rejection !== undefined) {
+        return { requestRejection: () => rejection };
+      }
+      return undefined;
+    },
+    webServer: {
+      // listen 之前 port 是 undefined（真 webServer 会抛）；让描述文件探测立刻放弃
+      get port() {
+        throw new Error('not listening');
+      },
+      register(route) {
+        routes.set(route.path, route.handler);
+        return () => routes.delete(route.path);
+      },
+    },
+  });
+  apply(makeCtx(undefined));
+  assert.deepEqual(
+    [...routes.keys()].sort(),
+    [
+      '/local/dsh-agent-tree/dock/action',
+      '/local/dsh-agent-tree/dock/state',
+      '/local/dsh-agent-tree/processes',
+    ].sort(),
+  );
+
+  const resOf = () => {
+    const res = {
+      statusCode: 0,
+      headers: {},
+      body: '',
+      setHeader(name, value) {
+        res.headers[name] = value;
+      },
+      end(text) {
+        res.body = text ?? '';
+      },
+    };
+    return res;
+  };
+  const jsonOf = (res) => JSON.parse(res.body);
+  const bodyReq = (body, headers = {}) => {
+    const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]);
+    req.method = 'POST';
+    req.headers = headers;
+    return req;
+  };
+
+  // --- state GET：不带 token → 401；带 token → 200 + 最新快照
+  let res = resOf();
+  await routes.get('/local/dsh-agent-tree/dock/state')({ method: 'GET', headers: {} }, res);
+  assert.equal(res.statusCode, 401);
+
+  res = resOf();
+  await routes.get('/local/dsh-agent-tree/dock/state')(
+    { method: 'GET', headers: { 'x-agent-tree-dock-token': dockTokenValue() } },
+    res,
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(jsonOf(res).ok, true);
+  assert.equal(jsonOf(res).state, null, '浏览器还没发布过 → state 为 null');
+
+  // --- state POST：浏览器发布一帧，响应里带回 dock 在线与否 + 待执行动作
+  resetDockBridge();
+  const publish = { v: 1, tree: { running: 0, waiting: 0, scheduled: 0, stats: {}, groups: [] } };
+  res = resOf();
+  await routes.get('/local/dsh-agent-tree/dock/state')(bodyReq(publish), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(jsonOf(res).ok, true);
+  assert.deepEqual(jsonOf(res).actions, []);
+
+  // --- action POST：壳点行 → 排队 → 下一次发布响应里取走
+  res = resOf();
+  await routes.get('/local/dsh-agent-tree/dock/action')({ method: 'POST', headers: {} }, res);
+  assert.equal(res.statusCode, 401, '壳动作也要 token');
+  res = resOf();
+  await routes.get('/local/dsh-agent-tree/dock/action')(
+    bodyReq({ action: 'open', id: 'session-x' }, { 'x-agent-tree-dock-token': dockTokenValue() }),
+    res,
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(jsonOf(res).pending, 1);
+
+  res = resOf();
+  await routes.get('/local/dsh-agent-tree/dock/state')(bodyReq(publish), res);
+  assert.deepEqual(
+    jsonOf(res).actions.map(({ action, id }) => ({ action, id })),
+    [{ action: 'open', id: 'session-x' }],
+    '动作随发布响应带回浏览器（带 at 时间戳）',
+  );
+  assert.deepEqual(takeDockActions(), [], '取走即清空');
+
+  // --- 方法限制
+  res = resOf();
+  await routes.get('/local/dsh-agent-tree/dock/state')({ method: 'DELETE', headers: {} }, res);
+  assert.equal(res.statusCode, 405);
+
+  // --- DSH 连接栅栏在场时：壳凭 token 豁免 401；不带 token 的请求照旧被拦
+  const fenced = new Map();
+  apply(makeCtx(401));
+  res = resOf();
+  await routes.get('/local/dsh-agent-tree/dock/state')(
+    { method: 'GET', headers: { 'x-agent-tree-dock-token': dockTokenValue() } },
+    res,
+  );
+  assert.equal(res.statusCode, 200, '壳没有 cookie，带 token 就该过（DSH 栅栏的 401 被豁免）');
+  res = resOf();
+  await routes.get('/local/dsh-agent-tree/dock/state')({ method: 'GET', headers: {} }, res);
+  assert.equal(res.statusCode, 401, '没 cookie 也没 token → 栅栏 401');
+  const fencedPublish = resOf();
+  await routes.get('/local/dsh-agent-tree/dock/state')(bodyReq(publish), fencedPublish);
+  assert.equal(fencedPublish.statusCode, 401, '浏览器发布必须带 DSH 凭证，token 不顶替 cookie');
+
+  for (const dispose of disposers) dispose();
 });

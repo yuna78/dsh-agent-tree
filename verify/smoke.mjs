@@ -186,6 +186,10 @@ const CLIENT_MARKERS = [
   ["id: 'orchid'", '兰花皮肤'],
   ['SKIN_DECOR', '外框装饰素材表'],
   ['whaleGirl', '小姑娘装饰素材 key'],
+  ['DOCK_STATE_ROUTE', '桌面浮窗发布路由'],
+  ['__DSH_AGENT_TREE_DOCK__', '桌面壳标记（壳内不再发布）'],
+  ['dockPayload', '浮窗快照裁剪'],
+  ["'dsh-agent-tree-rows'", '行容器 class（桌面壳钉高度用）'],
 ];
 for (const [marker, label] of CLIENT_MARKERS) {
   if (!client.includes(marker)) fail(`client.js 少了${label}（${marker}）`);
@@ -218,6 +222,12 @@ const HOST_MARKERS = [
   ['rollout-', 'codex 会话文件前缀'],
   ['dshInstances', '本机 dsh 实例发现'],
   ['-sTCP:LISTEN', '实例监听端口读取'],
+  ['DOCK_STATE_PATH', '桌面浮窗状态路由'],
+  ['DOCK_ACTION_PATH', '桌面浮窗动作路由'],
+  ['dockTokenMatches', '桌面壳 token 校验'],
+  ['publishDockDescriptor', '桌面壳握手文件'],
+  ['queueDockAction', '浮窗点击动作排队'],
+  ['x-agent-tree-dock-token', '桌面壳 token 请求头'],
 ];
 for (const [marker, label] of HOST_MARKERS) {
   if (!host.includes(marker)) fail(`index.js 少了${label}（${marker}）`);
@@ -225,6 +235,38 @@ for (const [marker, label] of HOST_MARKERS) {
 if (!/sendJson\(res, 200/.test(host)) fail('宿主路由没有 200 JSON 响应');
 if (!/ctx\.effect\(/.test(host)) fail('宿主路由没有放进 ctx.effect，卸载时不会释放');
 if (!/'GET'|\"GET\"/.test(host) || !/405/.test(host)) warn('宿主路由没看到只读方法限制（405）');
+
+// --------------------------------------------------- 4.5 桌面浮窗（desktop/）
+// 壳是「能跑出 DSH 窗口」的另一半：编译产物不进包，但源码和渲染页必须随包发布，
+// 用户 npm run dock:build 就地编译。细节见 desktop/README.md。
+const desktopFiles = [
+  'desktop/build.sh',
+  'desktop/dock.swift',
+  'desktop/dock.html',
+  'desktop/dock.css',
+  'desktop/dock.js',
+  'desktop/README.md',
+  'desktop/vendor/react.js',
+  'desktop/vendor/react-dom.js',
+  'desktop/vendor/README.md',
+];
+for (const file of desktopFiles) {
+  if (!existsSync(join(ROOT, file))) fail(`桌面壳缺文件：${file}`);
+  if (!pkg.files.includes(file)) fail(`package.json 的 files 没带 ${file}，npm 包里会没有桌面壳`);
+}
+const dockHtml = read('desktop/dock.html');
+for (const marker of ['./client.js', '__DSH_AGENT_TREE_DOCK__', './dock.js', './vendor/react.js']) {
+  if (!dockHtml.includes(marker)) fail(`desktop/dock.html 少了 ${marker}`);
+}
+const dockJs = read('desktop/dock.js');
+for (const marker of ['MiniInner', '__dockState', 'messageHandlers', 'dsh-agent-tree-card']) {
+  if (!dockJs.includes(marker)) fail(`desktop/dock.js 少了 ${marker}`);
+}
+const dockSwift = read('desktop/dock.swift');
+for (const marker of ['/local/dsh-agent-tree/dock/state', 'x-agent-tree-dock-token', 'passRects', 'userContentController', 'agent-tree-dock-']) {
+  if (!dockSwift.includes(marker)) fail(`desktop/dock.swift 少了 ${marker}`);
+}
+if (!read('.gitignore').includes('desktop/build/')) fail('.gitignore 少了 desktop/build/（编译产物不进 git）');
 
 // ------------------------------------------------------------ 5. 隐私与卫生
 const scanTargets = [
@@ -236,10 +278,16 @@ const scanTargets = [
   'README.en.md',
   'CHANGELOG.md',
   'LICENSE',
+  'desktop/dock.swift',
+  'desktop/dock.html',
+  'desktop/dock.css',
+  'desktop/dock.js',
+  'desktop/README.md',
   ...walk(join(ROOT, 'docs')).map((file) => relative(ROOT, file)),
   ...walk(join(ROOT, 'test')).map((file) => relative(ROOT, file)),
   ...walk(join(ROOT, 'scripts')).map((file) => relative(ROOT, file)),
   ...walk(join(ROOT, 'verify')).map((file) => relative(ROOT, file)),
+  ...walk(join(ROOT, 'desktop/vendor')).map((file) => relative(ROOT, file)),
 ];
 for (const file of scanTargets) {
   if (!existsSync(join(ROOT, file))) continue;

@@ -6,4 +6,6 @@ npm-debug.log*
 *.tgz
 .cache/
 coverage/
+.dsh-dev/
 .preview/
+desktop/build/

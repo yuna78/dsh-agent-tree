@@ -1,0 +1,126 @@
+/* dsh-plugin-agent-tree · 桌面壳样式
+ *
+ * 窗口是透明的画框，卡片才是内容。四周留白（PAD）是为了让皮肤装饰能伸到卡片外面：
+ * 原生窗口尺寸由 dock.js 上报的内容外沿决定，这里只负责钉位置和提供后备主题色。
+ */
+
+/* ---- 透明画布 -------------------------------------------------------------- */
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+body {
+  font-family: var(--dsw-font-family, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif);
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* ---- DSH 主题 token 的后备值 ------------------------------------------------
+ * 浏览器端会把 DSH 当前的主题 token 随快照发来（dock.tokens），这里只兜底：
+ * 没拿到 token 时（比如 DSH 页面还没连上）也要能看。亮暗两组各一份。 */
+:root {
+  --dsw-alias-label-primary: #1f2329;
+  --dsw-alias-label-secondary: #5a6068;
+  --dsw-alias-label-tertiary: #8b9096;
+  --dsw-alias-bg-layer-1: #ffffff;
+  --dsw-alias-bg-layer-2: #f6f7f9;
+  --dsw-alias-interactive-bg-hover: rgba(20, 24, 30, 0.06);
+  --dsw-alias-border-l1: #e6e8eb;
+  --dsw-alias-border-l2: #dcdfe3;
+  --dsw-alias-border-l3: #cfd3d8;
+  --dsw-alias-brand-primary: #4d6bfe;
+  --dsw-alias-state-success-primary: #1fa971;
+  --dsw-elevation-panel: 0 12px 32px rgba(16, 20, 28, 0.16);
+}
+body[data-ds-dark-theme] {
+  --dsw-alias-label-primary: #eceef2;
+  --dsw-alias-label-secondary: #b3b8c0;
+  --dsw-alias-label-tertiary: #8d939c;
+  --dsw-alias-bg-layer-1: #232428;
+  --dsw-alias-bg-layer-2: #2b2c31;
+  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
+  --dsw-alias-border-l1: #33353b;
+  --dsw-alias-border-l2: #3b3d44;
+  --dsw-alias-border-l3: #45474f;
+  --dsw-alias-brand-primary: #7d93ff;
+  --dsw-alias-state-success-primary: #35c58a;
+  --dsw-elevation-panel: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- 卡片钉在画框的留白处 ----------------------------------------------------
+ * MiniInner 用内联 style 定位（读 localStorage），这里用 !important 压成固定留白：
+ * 桌面上「窗口 = 画框」，卡片在框内的位置恒定，拖动由原生层挪整个窗口。 */
+#mount { position: fixed; inset: 0; }
+#mount > div {
+  left: 130px !important;
+  top: 150px !important;
+}
+
+/* 行数上限用固定值：卡片自己写的是 46vh，会随窗口高度互相追逐（窗口高度又由内容决定）。 */
+.dsh-agent-tree-rows { max-height: 380px !important; }
+
+/* ---- 离线提示 --------------------------------------------------------------- */
+#dock-status {
+  display: none;
+  position: fixed;
+  left: 130px;
+  top: 150px;
+  z-index: 5;
+  align-items: center;
+  gap: 6px;
+  max-width: 288px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  box-shadow: var(--dsw-elevation-panel);
+  font-size: 11px;
+  white-space: nowrap;
+}
+body.is-offline #dock-status { display: flex; }
+body.is-offline #mount > div { opacity: 0.45; }
+
+/* ---- 右键菜单 --------------------------------------------------------------- */
+#dock-menu {
+  position: fixed;
+  z-index: 99;
+  min-width: 132px;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--dat-border, var(--dsw-alias-border-l2));
+  background: var(--dat-surface, var(--dsw-alias-bg-layer-1));
+  box-shadow: var(--dat-shadow, var(--dsw-elevation-panel));
+  animation: dock-menu-in 0.12s ease-out;
+}
+#dock-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  color: var(--dat-text, var(--dsw-alias-label-primary));
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#dock-menu button:hover {
+  background: var(--dat-hover, var(--dsw-alias-interactive-bg-hover));
+}
+
+@keyframes dock-menu-in {
+  from { opacity: 0; transform: translateY(3px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #dock-menu { animation: none; }
+}

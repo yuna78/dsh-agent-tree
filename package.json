@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-agent-tree",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "DSH Web mini agent tree: a tiny always-on floating card showing workspace → conversation → subagent as a live tree, with per-row model, scheduled-task countdowns, and external claude/codex CLI processes.",
   "keywords": [
     "dsh",
@@ -39,6 +39,15 @@
     "index.js",
     "client.js",
     "cordis.patch.yml",
+    "desktop/build.sh",
+    "desktop/dock.swift",
+    "desktop/dock.html",
+    "desktop/dock.css",
+    "desktop/dock.js",
+    "desktop/README.md",
+    "desktop/vendor/react.js",
+    "desktop/vendor/react-dom.js",
+    "desktop/vendor/README.md",
     "docs/",
     "README.md",
     "README.en.md",
@@ -66,6 +75,8 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "verify": "node verify/smoke.mjs",
+    "dock:build": "bash desktop/build.sh",
+    "dock": "bash desktop/build.sh && ./desktop/build/dsh-agent-tree-dock",
     "prepublishOnly": "node verify/smoke.mjs"
   }
 }

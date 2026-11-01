@@ -16,11 +16,7 @@
 │ ├─ ▾ my-repo                                 1  │
 │ │  └─ ● Triage CI failures        v4.1-pro       │
 │ ▾ ● claude  proj-alpha                 12m 3%    │ ← 顶层 agent：本机 claude（和 dsh 同级）
-│ │  └─ computer use ×2                    41m     │ ← 它的子进程（按种类归组）
-│ ▾ ● codex   ChatGPT                 69h35m 2%    │
-│ ├─ MCP ×2                                2h50m   │
-│ ├─ computer use ×2                        41m    │
-│ └─ code mode                              41m    │
+│ ▾ ● codex   ChatGPT                 69h35m 2%    │ ← 顶层 agent：桌面端 codex（子进程行已去掉）
 │ 会话 6 · 子代理 3 · 运行中 5（live）             │ ← 自检行
 └──────────────────────────────────────────────────┘
 ```
@@ -62,7 +58,7 @@ agent 提问（`ask_user_question`）、等你批准一次操作、等你审阅�
 
 ```
 dsh（这个实例）                  claude / codex（本机其它 agent）
-└─ workspace                     └─ 子进程（按种类归组）
+└─ workspace                     └─ 子对话（codex 线程树；子进程行已去掉）
    └─ 对话
       └─ subagent
          └─ 孙代理 …
@@ -101,8 +97,8 @@ dsh（这个实例）                  claude / codex（本机其它 agent）
 |---|---|
 | 空闲 | 只有一圈淡淡的箭头；有新版时按钮右上挂一个小圆点 |
 | 点击后 | 图标开始转圈，标题层下面展开一条检查面板 |
-| 已是最新 | `✓ 已是最新 · v0.1.5` + 「刚刚 / N 分钟前检查过 npm registry」 |
-| 有新版 | `↑ 发现新版本 vX`（当前 v0.1.5）+ 一条可复制的升级命令 |
+| 已是最新 | `✓ 已是最新 · v0.1.6` + 「刚刚 / N 分钟前检查过 npm registry」 |
+| 有新版 | `↑ 发现新版本 vX`（当前 v0.1.6）+ 一条可复制的升级命令 |
 | 失败 | 红色提示 + 「浏览器拿不到 npm registry（离线或网络被拦）」，可再点重试 |
 
 - **只在点击时联网**：向 `https://registry.npmjs.org/dsh-plugin-agent-tree/latest` 发一次只读 GET，
@@ -180,7 +176,8 @@ DSH 的 Automation tasks（`schedule.catalog()`）驱动的是「间歇式工作
 
 ## 7. 本机外部 agent（和 dsh 同级）
 
-宿主半部的只读探测，列出本机正在跑的 `claude` / `codex` CLI。它们**和 `dsh` 一样是顶层节点**
+宿主半部的只读探测，列出本机正在跑的 `claude` / `codex` CLI 与 **Claude 桌面版**（`Claude.app` 主进程，开着就在，
+行名固定 `Claude 桌面版`，Helper 不单独成行）。它们**和 `dsh` 一样是顶层节点**
 （同一套行规格：同样字号、同样圆点、同样折叠），区别只有圆点颜色（claude 橙 / codex 绿）：
 
 ```
@@ -189,24 +186,18 @@ DSH 的 Automation tasks（`schedule.catalog()`）驱动的是「间歇式工作
 ```
 
 - 行名（`label`）的取值顺序：该 codex 会话的第一条真实用户消息（跳过 `environment_context` / `AGENTS.md` 注入）
-  → 进程真实 cwd 的目录名 → 命令行里的 `--cwd/--cd/-C` → `ChatGPT`（桌面端 backend）→ 空。
+  → 进程真实 cwd 的目录名 → 命令行里的 `--cwd/--cd/-C` → `Claude 桌面版`（Claude.app 主进程）→ `ChatGPT`（桌面端 backend）→ 空。
+- **圆点跟真实活动走**：codex 行 2 分钟内有 rollout 写入才算「在跑」，否则灰点（hover 提示「最后活动多久前」）。
+- **ChatGPT 桌面端的常驻后端不算会话**：`codex app-server` 只要 ChatGPT.app 开着就活着，所以它只在最近
+  10 分钟（`BACKEND_VISIBLE_MS`）有 rollout 写入时才挂行——不会出现「任务早结束了，ChatGPT 开着就永远挂着」。
 - 只显示前 8 条；结果缓存 3 秒；接口需要登录态（未登录 401）。
 - 目的是「我在 DSH 里干活时，本机还有没有别的 agent 在偷偷跑」；点这一行可折叠子树。
 
-### 6.1 外部 agent 的子进程
+### 6.1 子进程行已去掉
 
-`claude` / `codex` 的子进程按 `ppid` 挂成子树；同一种子进程会归组成一行：
-
-```
-├─ ▾ ● codex  ChatGPT        69h35m 2%
-│  ├─ MCP ×2                    2h50m
-│  ├─ computer use ×2             41m
-│  └─ code mode                   41m
-```
-
-- `×N` 表示有几个同类子进程，右侧显示其中跑得最久的时长；
-- 点进程根行可以折叠它的子树；
-- 子孙里如果又是一个真正的 agent CLI，会单独作为根出现，不重复挂。
+`claude` / `codex` 的子进程（`computer use` / `MCP` / `code mode` / `helper` 这些）**不再显示**——
+按需求把归组行整个砍掉了，客户端不再渲染这层。codex 只保留它自己的子对话（见 6.2）；
+子孙里如果又是一个真正的 agent CLI，仍会单独作为根出现，不重复挂。
 
 ### 6.2 codex 的子对话（subagent threads）
 
@@ -218,9 +209,7 @@ codex（CLI 和 ChatGPT 桌面端）每开一个会话都会写一条 rollout：
 ▾ ● codex ChatGPT              69h35m 2%
    ├─ ● Hubble   advance_review_logic       running
    ├─ ● Carson   review_nextarchive_code    16m前
-   ├─ ● Wegener  review_nextarchive_triage  1h42m前
-   ├─ MCP ×2                                2h50m
-   └─ computer use ×2                        41m
+   └─ ● Wegener  review_nextarchive_triage  1h42m前
 ```
 
 - 2 分钟内活动过标 `running`（绿点加粗），否则显示「最后活动多久前」。
@@ -268,7 +257,13 @@ codex（CLI 和 ChatGPT 桌面端）每开一个会话都会写一条 rollout：
 - `live` 表示用的是官方实时事件，`poll` 表示回落到了轮询 —— 如果长期是 `poll`，说明这个 DSH 版本的全局
   props 里没有状态 store，可以据此提 issue。
 
-## 11. 已知限制
+## 11. 桌面浮窗（macOS）
+
+卡片不必困在 DSH 窗口里：`npm run dock:build && ./desktop/build/dsh-agent-tree-dock` 会把**同一张卡片**
+（同一套组件与皮肤）搬到一个透明置顶的独立小窗口里，任何应用在前台都看得到；点行跳回 DSH，
+点卡片以外穿透到桌面。数据一秒一拍、页面零网络，细节见 [desktop.md](desktop.md)。
+
+## 12. 已知限制
 
 - 只显示**当前 Web 实例**的会话（别的 profile / 别的机器看不到）。
 - 运行状态以 DSH 的状态事件为准；如果某个子代理在 DSH 里已经结束、但事件还没到，可能短暂多显示一两秒。

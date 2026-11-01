@@ -35,11 +35,12 @@ at which depth, on which model, for how long, and when its next scheduled run fi
 - **Alarm clock on loop sessions** — any session driven by a schedule keeps a `⏰` in front of its title, with the countdown to the next run on the right (`8m` / `2h` / `3d`); a round that just fired shows `now` and still keeps the clock, so a running loop never looks like a plain conversation.
 - **Scheduled-task countdown** — reads `schedule.catalog()` from Automation tasks (the `remote.schedule` service, with a `ctx.get` fallback while its namespace is not mounted yet); sessions driven by a schedule are listed even while idle, with `⏱8m / ⏱2h / ⏱3d` and a `N running · M scheduled` headline.
 - **Sessions that need your call come first** — when an agent asks a question, waits for an approval, or waits for a plan review (`pendingInteraction` = `question` / `approval` / `plan-review`), that row turns **amber**, carries a `待答 / 待批 / 待审` badge and **sorts above running rows**. Previously such a session disappeared because it was no longer running.
-- **Local external agent processes, also as a tree** — the plugin's host half exposes a read-only endpoint that finds running **claude / codex CLIs** via `ps` + `lsof` and nests their children by `ppid` (e.g. codex's `computer use ×4` / `MCP ×3` / `code mode`). They show up as **top-level agents next to `dsh`**, with exactly the same row spec. ChatGPT desktop's `Codex Framework` helpers are not mistaken for CLIs themselves.
+- **Local external agent processes, also as a tree** — the plugin's host half exposes a read-only endpoint that finds running **claude / codex CLIs** via `ps` + `lsof` and shows them as **top-level agents next to `dsh`**, with exactly the same row spec; codex rows carry their own sub-conversation tree. Child-process rows (`computer use ×N` / `MCP ×N` / `code mode`) were **removed on request** and are no longer rendered. **Claude Desktop** (`Claude.app`) shows up as a `claude` top-level node while it is open, labeled `Claude 桌面版`, with its helpers not listed as rows. ChatGPT desktop's `Codex Framework` helpers are not mistaken for CLIs, and its resident `codex app-server` backend only shows a row when a rollout was written within the last 10 minutes — the dot follows real activity, so a finished task never hangs around forever.
 - **codex rows are named after their own session** — the first *real* user message from the rollout (skipping `environment_context` / `AGENTS.md` injections), e.g. `codex 推进一下能推进的任务…  devline`, falling back to the directory name; processes sharing one cwd claim distinct sessions, so rows never share a name.
 - **codex sub-conversations are visible too** — reads codex's own session records (`~/.codex/sessions/**/rollout-*.jsonl`, first `session_meta` line) and rebuilds its subagent threads by `parent_thread_id`, hanging them under the codex row: `● Hubble advance_review_logic running` / `● Carson review_nextarchive_code 16m前`. Local read-only, no network, nothing leaves the machine. (Claude's sidechain layout differs and is not parsed yet.)
 - **Click to jump** — `subagentAddress()` + `uiWorkspace.openSession()`, including subagents.
 - **Draggable, remembers its position** — stored in `localStorage`.
+- **Desktop dock (macOS)** — `npm run dock` moves the **same card** (same components and skins) out of the DSH window: a tiny separate process, transparent, borderless, always-on-top, on every Space — visible no matter which app is frontmost. Rows still open the session in DSH; clicks outside the card fall through to the desktop. The dock page has zero network: data is polled by the shell with a handshake token and injected. See the [desktop dock guide](docs/desktop.en.md).
 
 ## Install in 3 minutes
 
@@ -126,10 +127,36 @@ Only public client-side UI contracts — no host patching, no database access:
 ## External process monitoring: scope and limits
 
 - **Read-only**: `ps -axo pid=,etime=,pcpu=,command=` + `lsof -a -p <pid> -d cwd -Fn`. No signals, no output capture.
-- **Real CLIs only**: the executable basename must be exactly `claude` or `codex`; ChatGPT desktop helper processes are excluded.
+- **Real CLIs and the Claude Desktop main process only**: executables with the exact basename `claude` or `codex` are recognized as before; `/Applications/Claude.app/Contents/MacOS/Claude` is recognized as `claude` (desktop), while `Claude Helper` counts as a child only; ChatGPT desktop helper processes are excluded. The resident `codex app-server` backend of ChatGPT / CodexCLI.app is not a "session": it only gets a row when a rollout was written within the last 10 minutes.
 - **Endpoint guards**: same-origin, reuses DSH connection auth (401 without a session), GET only (405 otherwise), timeouts on `ps`/`lsof`, 3s cache, max 8 rows; if the `webServer` service is missing it only warns and never blocks DSH startup.
 - **Platforms**: macOS / Linux. On Windows the block stays empty (the tree itself still works).
 - Disable it by removing the plugin from the profile — the client card simply loses that section.
+
+## Desktop dock: out of the DSH window (macOS)
+
+A web page cannot paint outside the browser viewport, so the card — however small — stays a
+"widget inside a window". The desktop dock gives it a home of its own, using the same approach
+as the dsh-maoxuan-pet desktop pet: a transparent, borderless, always-on-top small process
+(AppKit + WKWebView) that runs the **same MiniInner components and skins** — the in-page card
+and the docked card are one thing arranged twice.
+
+```sh
+npm run dock:build                       # swiftc build + collect the page assets (no 3rd-party deps)
+./desktop/build/dsh-agent-tree-dock      # or one step: npm run dock
+```
+
+- **One snapshot per second**: the browser card POSTs a pruned render snapshot to the host; the
+  shell polls it with a handshake token (`~/.dsh/agent-tree-dock-<port>.json`, 0600) and injects
+  it into the dock page — **the dock page touches no network at all**;
+- **Rows jump back to DSH**: clicking a row queues an action at the host; the next publish
+  response carries it back to the browser, which runs `openSession` while DSH comes frontmost;
+- **Clicks outside the card fall through**: only the card / pill / menu rects are clickable,
+  everything else is "air";
+- The snapshot is one latest frame in host memory — nothing on disk, nothing off the machine;
+  with the browser page closed the dock dims to an offline state after 30 seconds.
+
+Details, interaction and troubleshooting tables: [docs/desktop.en.md](docs/desktop.en.md)
+(Chinese: [docs/desktop.md](docs/desktop.md)); build notes in [desktop/README.md](desktop/README.md).
 
 ## Compatibility
 
@@ -137,13 +164,14 @@ Only public client-side UI contracts — no host patching, no database access:
 |---|---|
 | DSH | `>= 0.2.0-rc.2 < 0.3.0` (tested on `0.2.0-rc.2` and `0.2.1-rc.2`, Web profile; covers the whole 0.2.x prerelease line) |
 | Node.js | `^22.19.0 \|\| >= 24.0.0` |
-| Platform | DSH Web (client seat `shell.overlay`); process block macOS/Linux |
+| Platform | DSH Web (client seat `shell.overlay`); process block macOS/Linux; desktop dock macOS |
 
 ## Development
 
 ```sh
-npm test                              # unit tests (tree / model / schedule / process parsing)
+npm test                              # unit tests (tree / model / schedule / process parsing / dock bridge)
 npm run verify                        # package contract + seats + data sources + privacy + tests
+npm run dock:build                    # build the desktop shell into desktop/build/ (not in git, not in the npm package)
 node scripts/build-public-bundle.mjs  # whitelisted public copy with a privacy scan
 ```
 

@@ -44,11 +44,15 @@ window.__ModuleLoader__.load({
     const SCHEDULE_POLL_MS = 15000;
     const PROCESS_POLL_MS = 5000;
     const PROCESS_ROUTE = '/local/dsh-agent-tree/processes';
+    /** 桌面浮窗桥：把卡片数据发布给宿主，原生壳再拉走渲染（见 index.js）。 */
+    const DOCK_STATE_ROUTE = '/local/dsh-agent-tree/dock/state';
+    const DOCK_PUBLISH_MS = 1000;
+    const DOCK_IDLE_PUBLISH_MS = 8000;
     /** 别的 dsh 实例没有本地的实时状态，用「最近 5 分钟有过活动」判断还在干活。 */
     const INSTANCE_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 
     /** 客户端半部的版本；必须和 package.json 的 version 一致（verify/smoke.mjs 会校验）。 */
-    const PLUGIN_VERSION = '0.1.5';
+    const PLUGIN_VERSION = '0.1.6';
     /** 检查更新：只在用户点按钮时请求一次 npm registry（公开、只读、带 CORS 的 GET）。 */
     const NPM_PACKAGE_NAME = 'dsh-plugin-agent-tree';
     const NPM_LATEST_URL = 'https://registry.npmjs.org/dsh-plugin-agent-tree/latest';
@@ -612,25 +616,6 @@ window.__ModuleLoader__.load({
       return node && node.schedule !== undefined && node.schedule !== null;
     }
 
-    /** 子孙进程按标签归组：`computer use ×4`、`MCP ×3`，按数量再按时长排序。 */
-    function groupProcessChildren(children) {
-      const groups = new Map();
-      for (const child of Array.isArray(children) ? children : []) {
-        const label = (child && child.label) || 'child';
-        let entry = groups.get(label);
-        if (!entry) {
-          entry = { label, count: 0, elapsedSeconds: 0, cpu: 0 };
-          groups.set(label, entry);
-        }
-        entry.count += 1;
-        entry.elapsedSeconds = Math.max(entry.elapsedSeconds, Number(child.elapsedSeconds) || 0);
-        entry.cpu += Number(child.cpu) || 0;
-      }
-      return Array.from(groups.values()).sort(
-        (a, b) => b.count - a.count || b.elapsedSeconds - a.elapsedSeconds,
-      );
-    }
-
     function sortNodes(nodes) {
       nodes.sort(
         (a, b) =>
@@ -697,6 +682,171 @@ window.__ModuleLoader__.load({
     function shortTitle(row) {
       const title = (row.displayTitle || '').trim();
       return title.length > 0 ? title : row.id;
+    }
+
+    // ------------------------------------------------ 桌面浮窗：快照裁剪与发布
+    //
+    // 原生壳拿到的必须是「渲染一次卡片所需的全部数据」，但会话表本身很大
+    // （每条会话带整份投影），所以这里只留卡片真正会读的字段：
+    //   - tree：直接决定行与缩进；
+    //   - sessions：只给「本机其它实例」那段用（buildInstances 读 title/parentId/updatedAt）；
+    //   - statuses：只剩 running / pendingInteraction.kind。
+    // 不传对话内容、不传文件路径之外的隐私字段。
+
+    /** 卡片会读到的 DSH 主题变量：桌面壳照抄，颜色和页内完全一致。 */
+    const DOCK_THEME_TOKENS = [
+      '--dsw-alias-label-primary',
+      '--dsw-alias-label-secondary',
+      '--dsw-alias-label-tertiary',
+      '--dsw-alias-bg-layer-1',
+      '--dsw-alias-bg-layer-2',
+      '--dsw-alias-interactive-bg-hover',
+      '--dsw-alias-border-l1',
+      '--dsw-alias-border-l2',
+      '--dsw-alias-border-l3',
+      '--dsw-alias-brand-primary',
+      '--dsw-alias-state-success-primary',
+      '--dsw-elevation-panel',
+      '--dsw-font-family',
+    ];
+
+    /** 从页面的 body 上抄主题 token；拿不到就不给，桌面壳用自己的后备配色。 */
+    function dockThemeTokens(doc = typeof document !== 'undefined' ? document : undefined) {
+      const out = {};
+      if (!doc || !doc.body || typeof getComputedStyle !== 'function') return out;
+      const style = getComputedStyle(doc.body);
+      for (const name of DOCK_THEME_TOKENS) {
+        const value = style.getPropertyValue(name).trim();
+        if (value !== '') out[name] = value;
+      }
+      return out;
+    }
+
+    /** 一行的渲染快照：只留卡片会读的字段（标题 / 父子 / 时间 / 模型 / 耗时 / 待办）。 */
+    function dockRowSnapshot(row) {
+      if (row === null || typeof row !== 'object') return undefined;
+      // 只写有值的字段：JSON 里没有 undefined，桌面壳拿到的体积也更小。
+      const out = { id: row.id };
+      if (typeof row.displayTitle === 'string') out.displayTitle = row.displayTitle;
+      if (typeof row.parentId === 'string') out.parentId = row.parentId;
+      if (typeof row.origin === 'string') out.origin = row.origin;
+      if (Number.isFinite(row.updatedAt)) out.updatedAt = row.updatedAt;
+      if (typeof row.running === 'boolean') out.running = row.running;
+      if (row.blank === true) out.blank = true;
+      const projection = row.projectionValues;
+      if (projection !== null && typeof projection === 'object') {
+        const pruned = {};
+        if (projection.modelSelection) pruned.modelSelection = projection.modelSelection;
+        if (projection.subagentTiming) pruned.subagentTiming = projection.subagentTiming;
+        if (projection.pendingInteraction) pruned.pendingInteraction = projection.pendingInteraction;
+        if (Object.keys(pruned).length > 0) out.projectionValues = pruned;
+      }
+      return out;
+    }
+
+    function dockNodeSnapshot(node) {
+      if (node === null || typeof node !== 'object') return node;
+      const out = {
+        kind: node.kind,
+        row: dockRowSnapshot(node.row),
+        active: node.active === true,
+        children: (Array.isArray(node.children) ? node.children : []).map(dockNodeSnapshot),
+      };
+      if (node.waiting !== undefined) out.waiting = node.waiting;
+      if (node.schedule) out.schedule = { count: node.schedule.count, nextAt: node.schedule.nextAt };
+      return out;
+    }
+
+    /** 树里出现过的会话 id（含所有层的 row）。 */
+    function dockTreeIds(tree, out = new Set()) {
+      for (const group of (tree && Array.isArray(tree.groups) ? tree.groups : [])) {
+        const walk = (nodes) => {
+          for (const node of Array.isArray(nodes) ? nodes : []) {
+            if (node && node.row && typeof node.row.id === 'string') out.add(node.row.id);
+            if (node) walk(node.children);
+          }
+        };
+        walk(group.items);
+      }
+      return out;
+    }
+
+    /**
+     * 发布给宿主 / 原生壳的一帧。纯函数（除了读 document 上的主题），单测直接喂假数据。
+     * 返回 null 表示「这帧没有可发布的东西」（比如还没拿到会话表）。
+     */
+    function dockPayload({ tree, processes, instances, sessions, statuses, mode, now = Date.now() }) {
+      if (!tree || typeof tree !== 'object') return null;
+      const all = (sessions && sessions.byId) || {};
+      // 本机其它实例要用的会话：实例自己挂的 + 它们的直接子会话（buildInstances 只下钻一层）。
+      const kept = new Set();
+      for (const instance of Array.isArray(instances) ? instances : []) {
+        for (const id of Array.isArray(instance && instance.sessionIds) ? instance.sessionIds : []) {
+          if (all[id]) kept.add(id);
+        }
+      }
+      for (const id of Object.keys(all)) {
+        const parentId = all[id] && all[id].parentId;
+        if (typeof parentId === 'string' && kept.has(parentId)) kept.add(id);
+      }
+      const byId = {};
+      const ids = [];
+      for (const id of kept) {
+        const row = dockRowSnapshot(all[id]);
+        if (row === undefined) continue;
+        byId[id] = row;
+        ids.push(id);
+      }
+
+      const statusEntries = [];
+      const wanted = dockTreeIds(tree);
+      for (const id of ids) wanted.add(id);
+      const entries = statuses instanceof Map ? statuses.entries() : Object.entries(statuses || {});
+      for (const [id, status] of entries) {
+        if (!wanted.has(id) || status === null || typeof status !== 'object') continue;
+        const entry = { running: status.running === true };
+        if (status.pendingInteraction && typeof status.pendingInteraction === 'object') {
+          entry.pendingInteraction = { kind: status.pendingInteraction.kind };
+        }
+        statusEntries.push([id, entry]);
+      }
+
+      return {
+        v: 1,
+        at: now,
+        theme:
+          typeof document !== 'undefined' && document.body && document.body.hasAttribute('data-ds-dark-theme')
+            ? 'dark'
+            : 'light',
+        tokens: dockThemeTokens(),
+        mode: mode === 'live' ? 'live' : 'poll',
+        tree: {
+          running: Number(tree.running) || 0,
+          waiting: Number(tree.waiting) || 0,
+          scheduled: Number(tree.scheduled) || 0,
+          stats: tree.stats || { total: 0, subagents: 0, runningLive: 0 },
+          groups: (Array.isArray(tree.groups) ? tree.groups : []).map((group) => ({
+            id: String(group.id),
+            label: group.label,
+            items: (Array.isArray(group.items) ? group.items : []).map(dockNodeSnapshot),
+          })),
+        },
+        processes: Array.isArray(processes) ? processes : [],
+        instances: Array.isArray(instances) ? instances : [],
+        sessions: { ids, byId },
+        statuses: statusEntries,
+      };
+    }
+
+    /** 桌面壳里不发布（它自己就是壳）；file:// 预览也不发。 */
+    function dockPublisherDisabled() {
+      if (typeof window === 'undefined') return true;
+      if (window.__DSH_AGENT_TREE_DOCK__ === true) return true;
+      try {
+        return window.location !== undefined && window.location.protocol === 'file:';
+      } catch (err) {
+        return true;
+      }
     }
 
     function durationMs(projectionValues, running, now) {
@@ -1634,6 +1784,76 @@ window.__ModuleLoader__.load({
       const skinSignature = skins.map((item) => item.id).join(',');
       const now = useNow();
 
+      // ---- 桌面浮窗：把当前这一帧发布给宿主，原生壳拉走后用同一套 MiniInner 渲染 ----
+      // 只有页内卡发布；桌面壳自己也挂 MiniInner，但由 dockPublisherDisabled() 挡住。
+      // 原生壳最近 15 秒来拉过，宿主就在响应里回 dock:true，这里才提高到 1 秒一帧。
+      const dockFrameRef = React.useRef(null);
+      dockFrameRef.current = { tree, processes, instances, sessions, statuses, mode };
+      const dockOpenRef = React.useRef(onOpen);
+      dockOpenRef.current = onOpen;
+
+      React.useEffect(() => {
+        if (dockPublisherDisabled()) return undefined;
+        let alive = true;
+        let timer = null;
+        let lastBody = '';
+        const schedule = (ms) => {
+          if (!alive) return;
+          timer = window.setTimeout(tick, ms);
+        };
+        const runAction = (action) => {
+          if (!action || action.action !== 'open' || typeof action.id !== 'string') return;
+          try {
+            dockOpenRef.current(action.id);
+          } catch (err) {
+            console.warn('[dsh-agent-tree] dock open failed:', err);
+          }
+        };
+        const tick = async () => {
+          timer = null;
+          if (!alive) return;
+          let payload;
+          try {
+            payload = dockPayload(dockFrameRef.current);
+          } catch (err) {
+            payload = null;
+          }
+          if (payload === null) return schedule(DOCK_IDLE_PUBLISH_MS);
+          let text;
+          try {
+            text = JSON.stringify(payload);
+          } catch (err) {
+            return schedule(DOCK_IDLE_PUBLISH_MS);
+          }
+          const changed = text !== lastBody;
+          const body = changed ? text : JSON.stringify({ v: 1, unchanged: true, at: payload.at });
+          let next = DOCK_IDLE_PUBLISH_MS;
+          try {
+            const response = await fetch(DOCK_STATE_ROUTE, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', accept: 'application/json' },
+              body,
+              cache: 'no-store',
+            });
+            if (response.ok) {
+              const data = await response.json();
+              const online = data !== null && typeof data === 'object' && data.dock === true;
+              if (changed) lastBody = text;
+              if (Array.isArray(data.actions)) for (const action of data.actions) runAction(action);
+              next = online ? DOCK_PUBLISH_MS : DOCK_IDLE_PUBLISH_MS;
+            }
+          } catch (err) {
+            /* DSH 宿主暂时不可达：退到低频，页面本身不受影响 */
+          }
+          schedule(next);
+        };
+        schedule(DOCK_PUBLISH_MS);
+        return () => {
+          alive = false;
+          if (timer !== null) window.clearTimeout(timer);
+        };
+      }, []);
+
       React.useEffect(() => {
         ensureSkinStyles();
       }, [skinSignature]);
@@ -2302,12 +2522,12 @@ window.__ModuleLoader__.load({
         });
       });
 
-      // 外部 claude / codex：和 dsh 同级的顶层节点（不缩进），子进程挂在它们下面。
+      // 外部 claude / codex：和 dsh 同级的顶层节点（不缩进）。
+      // 子进程归组行（computer use / MCP / code mode…）按需求去掉；折叠只由 codex 的子对话（threads）驱动。
       processList.forEach((proc) => {
         const procKey = `proc:${proc.pid}`;
-        const children = Array.isArray(proc.children) ? proc.children : [];
+        const threads = Array.isArray(proc.threads) ? proc.threads : [];
         const procOpen = !collapsedNodes[procKey];
-        const childGroups = groupProcessChildren(children);
         rows.push(
           h(
             'div',
@@ -2315,23 +2535,28 @@ window.__ModuleLoader__.load({
               key: procKey,
               className: 'dsh-agent-tree-mini-row',
               onClick: () => {
-                if (children.length === 0) return;
+                if (threads.length === 0) return;
                 toggle(procKey);
               },
-              title: `${proc.kind} · pid ${proc.pid}${
+              title: `${proc.kind}${proc.desktop ? '（桌面版）' : ''} · pid ${proc.pid}${
                 proc.sessionTitle ? `\n${proc.sessionTitle}` : ''
-              }${proc.cwd ? `\n${proc.cwd}` : ''}${children.length > 0 ? `\n${children.length} 个子进程` : ''}`,
+              }${proc.cwd ? `\n${proc.cwd}` : ''}${
+                proc.idleSeconds !== undefined && proc.idleSeconds >= 120
+                  ? `\n最后活动 ${formatElapsed(proc.idleSeconds)}前`
+                  : ''
+              }`,
               style: {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
                 padding: '4px 8px 2px 10px',
-                cursor: children.length > 0 ? 'pointer' : 'default',
+                cursor: threads.length > 0 ? 'pointer' : 'default',
                 minWidth: 0,
               },
             },
-            children.length === 0 ? h('span', { style: { width: 8, flex: 'none' } }) : caret(procOpen),
-            h(Dot, { color: KIND_DOT[proc.kind] || DOT.deep, active: true }),
+            threads.length === 0 ? h('span', { style: { width: 8, flex: 'none' } }) : caret(procOpen),
+            // 圆点跟随宿主半部的活动信号：旧宿主不给 active 字段时保持原来的常亮行为
+            h(Dot, { color: KIND_DOT[proc.kind] || DOT.deep, active: proc.active !== false }),
             clampSpan(proc.kind, {
               flex: 'none',
               fontSize: 11,
@@ -2356,67 +2581,22 @@ window.__ModuleLoader__.load({
             ),
           ),
         );
-        if (!procOpen) return;
+        if (!procOpen || threads.length === 0) return;
 
-        // 子对话（codex 的 subagent threads，来自它自己的 rollout 记录）排在子进程前面
-        const threads = Array.isArray(proc.threads) ? proc.threads : [];
-        const entries = [
-          ...threads.map((thread) => ({ kind: 'thread', thread })),
-          ...childGroups.map((child) => ({ kind: 'child', child })),
-        ];
-        entries.forEach((entry, index) => {
-          const isLastEntry = index === entries.length - 1;
-          const connector = isLastEntry ? '└─' : '├─';
-
-          if (entry.kind === 'thread') {
-            const thread = entry.thread;
-            const indent = '   '.repeat(Math.max(0, (Number(thread.depth) || 1) - 1));
-            const pathLeaf = thread.agentPath ? String(thread.agentPath).split('/').filter(Boolean).pop() || '' : '';
-            const idle = Number(thread.idleSeconds) || 0;
-            rows.push(
-              h(
-                'div',
-                {
-                  key: `${procKey}:thread:${index}`,
-                  title: `${thread.nickname}${thread.agentPath ? `\n${thread.agentPath}` : ''}\n${
-                    thread.running ? '正在工作' : `最后活动 ${formatElapsed(idle)}前`
-                  }`,
-                  style: {
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '2px 8px 2px 12px',
-                    minWidth: 0,
-                  },
-                },
-                glyph(`${indent}${connector}`),
-                h(Dot, { color: DOT.conversation, active: thread.running === true }),
-                clampSpan(thread.nickname || pathLeaf || '子对话', {
-                  flex: 'none',
-                  fontSize: 10.5,
-                  fontWeight: thread.running === true ? 600 : 500,
-                  color: thread.running === true ? 'var(--dat-text, var(--dsw-alias-label-primary))' : 'var(--dat-sub, var(--dsw-alias-label-secondary))',
-                }),
-                pathLeaf && thread.nickname
-                  ? clampSpan(pathLeaf, { fontSize: 9, color: 'var(--dat-muted, var(--dsw-alias-label-tertiary))' })
-                  : h('span', { style: { flex: 1 } }),
-                h(
-                  'span',
-                  { style: { flex: 'none', fontSize: 9.5, color: 'var(--dat-muted, var(--dsw-alias-label-tertiary))', opacity: 0.85 } },
-                  thread.running === true ? 'running' : `${formatElapsed(idle)}前`,
-                ),
-              ),
-            );
-            return;
-          }
-
-          const child = entry.child;
+        // codex 的子对话（subagent threads，来自它自己的 rollout 记录）
+        threads.forEach((thread, index) => {
+          const connector = index === threads.length - 1 ? '└─' : '├─';
+          const indent = '   '.repeat(Math.max(0, (Number(thread.depth) || 1) - 1));
+          const pathLeaf = thread.agentPath ? String(thread.agentPath).split('/').filter(Boolean).pop() || '' : '';
+          const idle = Number(thread.idleSeconds) || 0;
           rows.push(
             h(
               'div',
               {
-                key: `${procKey}:${child.label}`,
-                title: child.count > 1 ? `${child.count} 个 ${child.label} 子进程` : child.label,
+                key: `${procKey}:thread:${index}`,
+                title: `${thread.nickname}${thread.agentPath ? `\n${thread.agentPath}` : ''}\n${
+                  thread.running ? '正在工作' : `最后活动 ${formatElapsed(idle)}前`
+                }`,
                 style: {
                   display: 'flex',
                   alignItems: 'center',
@@ -2425,15 +2605,21 @@ window.__ModuleLoader__.load({
                   minWidth: 0,
                 },
               },
-              glyph(connector),
-              clampSpan(child.count > 1 ? `${child.label} ×${child.count}` : child.label, {
+              glyph(`${indent}${connector}`),
+              h(Dot, { color: DOT.conversation, active: thread.running === true }),
+              clampSpan(thread.nickname || pathLeaf || '子对话', {
+                flex: 'none',
                 fontSize: 10.5,
-                color: 'var(--dat-muted, var(--dsw-alias-label-tertiary))',
+                fontWeight: thread.running === true ? 600 : 500,
+                color: thread.running === true ? 'var(--dat-text, var(--dsw-alias-label-primary))' : 'var(--dat-sub, var(--dsw-alias-label-secondary))',
               }),
+              pathLeaf && thread.nickname
+                ? clampSpan(pathLeaf, { fontSize: 9, color: 'var(--dat-muted, var(--dsw-alias-label-tertiary))' })
+                : h('span', { style: { flex: 1 } }),
               h(
                 'span',
-                { style: { flex: 'none', fontSize: 9.5, color: 'var(--dat-muted, var(--dsw-alias-label-tertiary))', opacity: 0.8 } },
-                formatElapsed(child.elapsedSeconds),
+                { style: { flex: 'none', fontSize: 9.5, color: 'var(--dat-muted, var(--dsw-alias-label-tertiary))', opacity: 0.85 } },
+                thread.running === true ? 'running' : `${formatElapsed(idle)}前`,
               ),
             ),
           );
@@ -2692,7 +2878,10 @@ window.__ModuleLoader__.load({
             : null,
           h(
             'div',
-            { style: { maxHeight: '46vh', overflowY: 'auto', padding: '0 0 5px' } },
+            {
+              className: 'dsh-agent-tree-rows',
+              style: { maxHeight: '46vh', overflowY: 'auto', padding: '0 0 5px' },
+            },
             visible.length === 0
               ? h(
                   'div',
@@ -2964,7 +3153,6 @@ window.__ModuleLoader__.load({
         nodeRank,
         scheduleRemote,
         sortNodes,
-        groupProcessChildren,
         modelLabel,
         toScheduleMap,
         scheduleMark,
@@ -2980,6 +3168,12 @@ window.__ModuleLoader__.load({
         PLUGIN_VERSION,
         UPDATE_KEY,
         NPM_LATEST_URL,
+        dockPayload,
+        dockRowSnapshot,
+        dockNodeSnapshot,
+        dockThemeTokens,
+        dockTreeIds,
+        dockPublisherDisabled,
       },
     };
   },

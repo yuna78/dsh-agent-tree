@@ -16,11 +16,7 @@
 │ ├─ ▾ my-repo                                 1  │
 │ │  └─ ● Triage CI failures        v4.1-pro       │
 │ ▾ ● claude  proj-alpha                 12m 3%    │ ← top-level agent: local claude (dsh peer)
-│ │  └─ computer use ×2                    41m     │ ← its children, grouped by kind
-│ ▾ ● codex   ChatGPT                 69h35m 2%    │
-│    ├─ MCP ×2                             2h50m   │
-│    ├─ computer use ×2                     41m    │
-│    └─ code mode                           41m    │
+│ ▾ ● codex   ChatGPT                 69h35m 2%    │ ← top-level agent: desktop codex (child rows removed)
 │ 会话 6 · 子代理 3 · 运行中 5（live）             │ ← self-check line
 └──────────────────────────────────────────────────┘
 ```
@@ -102,7 +98,7 @@ The middle ghost button in the header is the **spinner**:
 |---|---|
 | idle | a faint circular arrow; a small dot sits on the button when a newer version is known |
 | clicked | the icon spins and a small panel opens under the header |
-| up to date | `✓ 已是最新 · v0.1.5` plus “checked npm registry just now / N minutes ago” |
+| up to date | `✓ 已是最新 · v0.1.6` plus “checked npm registry just now / N minutes ago” |
 | update found | `↑ 发现新版本 vX` with a one-click copy of the upgrade command |
 | failure | a red hint (“browser can't reach the npm registry”) and a retry |
 
@@ -182,24 +178,17 @@ color differs (claude orange / codex green):
 └─ ● codex   my-repo            3m
 ```
 
-- `label` resolution: real cwd basename → `--cwd/--cd/-C` from the command line → `ChatGPT` for the desktop backend → empty.
+- `label` resolution: real cwd basename → `--cwd/--cd/-C` from the command line → `Claude Desktop` (the `Claude.app` main process) → `ChatGPT` for the desktop backend → empty.
+- **The dot follows real activity**: a codex row counts as "running" only when its rollout was written within 2 minutes; otherwise the dot goes idle.
+- **ChatGPT desktop's resident backend is not a session**: `codex app-server` lives as long as ChatGPT.app does, so a row only shows up when a rollout was written within the last 10 minutes (`BACKEND_VISIBLE_MS`) — no more "the task ended hours ago but the row never leaves while ChatGPT is open".
 - Max 8 rows, 3s cache on the host, requires a logged-in session (401 otherwise).
 - Purpose: "while I work inside DSH, is some other agent also running on this machine?"
 
-### 6.1 Children of an external agent
+### 6.1 Child-process rows are gone
 
-`claude` / `codex` children hang under them by `ppid`, grouped by kind:
-
-```
-├─ ▾ ● codex  ChatGPT        69h35m 2%
-│  ├─ MCP ×2                    2h50m
-│  ├─ computer use ×2             41m
-│  └─ code mode                   41m
-```
-
-- `×N` = how many children of that kind; the right column shows the longest elapsed among them.
-- Clicking the process root collapses its subtree.
-- A real agent CLI found among the descendants is listed as its own root instead of being nested twice.
+Child processes of `claude` / `codex` (`computer use` / `MCP` / `code mode` / `helper` and friends) are **no longer
+displayed** — the grouped rows were removed on request and the client no longer renders that layer. codex keeps only
+its own sub-conversations (see 6.2); a real agent CLI found among the descendants still shows up as its own root.
 
 ### 6.2 codex sub-conversations (subagent threads)
 
@@ -212,9 +201,7 @@ hanging it under the codex row:
 ▾ ● codex ChatGPT              69h35m 2%
    ├─ ● Hubble   advance_review_logic       running
    ├─ ● Carson   review_nextarchive_code    16m前
-   ├─ ● Wegener  review_nextarchive_triage  1h42m前
-   ├─ MCP ×2                                2h50m
-   └─ computer use ×2                        41m
+   └─ ● Wegener  review_nextarchive_triage  1h42m前
 ```
 
 - Active within the last two minutes → `running` (green, bold); otherwise "last active N ago".
@@ -261,7 +248,14 @@ The row is named after **the first real request of that codex session** (skippin
 - `live` = official realtime events, `poll` = fallback. If it stays `poll`, this DSH build lacks the global status
   store — worth an issue.
 
-## 11. Known limits
+## 11. Desktop dock (macOS)
+
+The card doesn't have to live inside the DSH window: `npm run dock:build && ./desktop/build/dsh-agent-tree-dock`
+moves the **same card** (same components and skins) into a transparent always-on-top window of its own,
+visible no matter which app is frontmost; rows jump back to DSH and clicks outside the card fall through.
+One snapshot per second, zero page network — details in [desktop.en.md](desktop.en.md).
+
+## 12. Known limits
 
 - Only the current Web instance's sessions are visible (not other profiles or machines).
 - Running state follows DSH status events; a finished subagent may linger for a second or two.

@@ -33,8 +33,11 @@
   `approval` / `plan-review`），那一行**换成琥珀色**、带 `待答 / 待批 / 待审` 小徽标，并且**排在在跑的之前**——
   以前这类会话因为「没在跑」会直接消失。
 - **本机外部 agent 进程（也是树）**：插件宿主半部提供只读接口，用 `ps` + `lsof` 找到本机正在跑的 **claude / codex CLI**，
-  再按 `ppid` 把它们的子进程挂成子树（如 codex 的 `computer use ×4` / `MCP ×3` / `code mode`）。它们是**和 `dsh` 同级的顶层 agent 节点**，行规格完全一致，可折叠。
-  ChatGPT 桌面端里的 `Codex Framework` 辅助进程本身不会被误认成 CLI。
+  作为**和 `dsh` 同级的顶层 agent 节点**，行规格完全一致；codex 行下面挂它自己的子对话树。
+  子进程行（`computer use ×N` / `MCP ×N` / `code mode` 这些归组行）**已按需求去掉**，不再显示。
+  **Claude 桌面版**（`Claude.app`）开着时也显示为 `claude` 顶层节点，行名 `Claude 桌面版`，Helper 不单独成行。
+  ChatGPT 桌面端里的 `Codex Framework` 辅助进程本身不会被误认成 CLI；它的常驻 `codex app-server` 后端只在最近 10 分钟
+  有会话活动时才挂行，圆点跟真实活动走——**任务结束后最多再挂 10 分钟就收掉，不会永远挂着**。
 - **codex 的行名是它自己的会话标题**：从 rollout 里取第一条**真实**用户消息（跳过 `environment_context` /
   `AGENTS.md` 这类上下文注入）当行名，比如 `codex 推进一下能推进的任务…  devline`；取不到才回落到目录名。
   多个 codex 进程同 cwd 时会各认领一条会话，不会三行同名。
@@ -53,6 +56,10 @@
   自己加一套不用改代码，往 `window.__DSH_AGENT_TREE_SKINS__` 里注册 `--dat-*` 变量和 `decor` 图片即可，
   见 [皮肤指南](docs/skins.md)。
 - **拖动 + 位置记忆**：拖窗口头（或收起后的胶囊）移动，位置存 `localStorage`，下次还在原处。
+- **桌面浮窗（macOS）**：`npm run dock` 把**同一张卡片**（同一套组件与皮肤）搬出 DSH 窗口——独立小进程、
+  透明无边框置顶、跟随所有 Space，任何应用在前台都看得到；点行照样跳回 DSH 打开会话，
+  点卡片以外穿透到桌面；浮窗页面零网络，数据由壳带握手 token 轮询后注入。
+  详见 [桌面浮窗指南](docs/desktop.md)。
 
 ## 3 分钟安装
 
@@ -107,8 +114,7 @@ dsh plugin --profile web add "$PWD"
 | `│  ├─ ● Explore repo structure  v4.1-flash  1m5s` | 它的 subagent（蓝点），已跑 1 分 05 秒 |
 | `│  │  └─ ● Run unit tests  v4.1-flash  9s` | 孙代理（紫点） |
 | `▾ ● codex 推进一下能推进的任务…  devline` | codex 的**会话标题**（首条真实用户消息）+ 目录名；不是目录名兜底 |
-| `▾ ● claude proj-alpha         12m 3%` | 本机另一个 agent（和 `dsh` 同级）：claude CLI，工作目录 `proj-alpha`，跑了 12 分钟、3% CPU |
-| `│  └─ computer use ×2            41m` | 它的子进程，自动按种类归组（`×N` + 最长的那个时长） |
+| `▾ ● claude proj-alpha         12m 3%` | 本机另一个 agent（和 `dsh` 同级）：claude CLI，工作目录 `proj-alpha`，跑了 12 分钟、3% CPU；子进程行已去掉，不再展开 |
 | `├─ ⏰ 推进 backlog 任务并设循环   now` | 挂了定时 / 循环任务的会话：标题前固定一个小闹钟，右侧是距下次触发的倒计时（到期显示 `now`，闹钟不消失） |
 | `│  ├─ ● Hubble advance_review_logic  running` | codex 的子对话（subagent 线程）：昵称 + agent 路径，右边是「正在工作 / 最后活动多久前」 |
 | `会话 6 · 子代理 3 · 运行中 5（live）` | 自检：快照里的会话数 / 子代理数 / 运行中数量；`live` 表示官方实时状态流 |
@@ -155,12 +161,35 @@ dsh plugin --profile web add "$PWD"
 ## 外部进程监控：范围与边界
 
 - **只读**：`ps -axo pid=,etime=,pcpu=,command=` + `lsof -a -p <pid> -d cwd -Fn`，不碰进程、不发信号、不读它输出。
-- **只认真 CLI**：可执行文件 basename 必须精确是 `claude` 或 `codex`；ChatGPT.app 里的 `Codex Framework`
-  助手 / crashpad 进程被排除（它们会误报成 8 条一样的记录）。
+- **只认真 CLI 和 Claude 桌面版主进程**：可执行文件 basename 精确是 `claude` 或 `codex` 的 CLI 照旧识别；
+  `/Applications/Claude.app/Contents/MacOS/Claude` 主进程按 `claude`（桌面版）识别，`Claude Helper` 不单独成行；
+  ChatGPT.app 里的 `Codex Framework` 助手 / crashpad 进程被排除（它们会误报成 8 条一样的记录）。
+  ChatGPT / CodexCLI.app 的常驻 `codex app-server` 后端不算「会话」：只在最近 10 分钟有 rollout 写入时才挂行。
 - **接口护栏**：同源、复用 DSH 连接层鉴权（未登录 401）、只读 GET（其它方法 405）、`ps`/`lsof` 都有超时、
   结果缓存 3 秒、最多返回 8 条；`webServer` 服务缺失时只 warn 跳过，不会阻断 DSH 启动。
 - **平台**：macOS / Linux 可用；Windows 没有 `ps -axo` 语义，这段自然为空（树本身照常工作）。
 - 想关掉：删掉 profile 里 `dsh-plugin-agent-tree` 这一项即可，客户端不受影响（进程段自动消失）。
+
+## 桌面浮窗：跑出 DSH 窗口（macOS）
+
+网页画不出浏览器视口之外，所以卡片再轻也只是「窗口里的小挂件」。桌面浮窗用 dsh-maoxuan-pet
+桌宠壳的同一套思路给了它一个独立的家：一个透明、无边框、置顶、跟随所有 Space 的小进程
+（AppKit + WKWebView），里面跑的**还是那套 MiniInner 组件与皮肤**——页内卡片和桌面浮窗是同一个东西的两种摆放。
+
+```sh
+npm run dock:build                       # swiftc 编译 + 收集渲染页（无第三方依赖）
+./desktop/build/dsh-agent-tree-dock      # 或一步：npm run dock
+```
+
+- **数据一秒一拍**：浏览器端卡片把裁剪后的渲染快照 POST 给宿主；壳带握手 token
+  （`~/.dsh/agent-tree-dock-<端口>.json`，0600）轮询拉走并注入浮窗页面——**浮窗页面全程零网络**；
+- **点行跳回 DSH**：浮窗里点一行，action 经宿主排队，随下一次发布响应带回浏览器执行 `openSession`，
+  DSH 应用同时被带到前台；
+- **点卡片以外穿透到桌面**：只有卡片 / 胶囊 / 菜单矩形可点，其余是「空气」；
+- 快照只存宿主内存里的一份最新帧，不落盘不出本机；浏览器页面关掉 30 秒后浮窗转离线态。
+
+细节、交互表、排查表见 [docs/desktop.md](docs/desktop.md)（英文 [docs/desktop.en.md](docs/desktop.en.md)），
+构建细节见 [desktop/README.md](desktop/README.md)。
 
 ## 兼容
 
@@ -168,13 +197,14 @@ dsh plugin --profile web add "$PWD"
 |---|---|
 | DSH | `>= 0.2.0-rc.2 < 0.3.0`（`0.2.0-rc.2` / `0.2.1-rc.2` 实测，Web profile；放宽到整条 0.2.x 预发布线） |
 | Node.js | `^22.19.0 \|\| >= 24.0.0` |
-| 平台 | DSH Web（客户端座位 `shell.overlay`）；外部进程段 macOS/Linux |
+| 平台 | DSH Web（客户端座位 `shell.overlay`）；外部进程段 macOS/Linux；桌面浮窗 macOS |
 
 ## 开发
 
 ```sh
-npm test                              # 单测（树构建 / 模型 / 定时 / 进程解析）
+npm test                              # 单测（树构建 / 模型 / 定时 / 进程解析 / 浮窗桥）
 npm run verify                        # 契约 + 座位 + 数据源 + 隐私 + 单测，全绿才算过
+npm run dock:build                    # 编译桌面壳到 desktop/build/（不进 git、不进 npm 包）
 node scripts/build-public-bundle.mjs  # 生成公开仓内容（白名单 + 隐私扫描，0 命中才放行）
 ```
 

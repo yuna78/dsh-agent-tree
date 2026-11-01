@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.1.6 — 2026-11-01
+
+- **桌面浮窗（macOS）：卡片跑出 DSH 窗口**。新增 `desktop/`——一个独立的小进程（AppKit + WKWebView，
+  参照 dsh-maoxuan-pet 桌宠壳的做法），透明无边框置顶、跟随所有 Space，里面渲染的**就是 client.js 那套
+  MiniInner 组件与皮肤**，和页内卡片一模一样。浏览器端卡片把裁剪后的渲染快照每秒 POST 给宿主
+  （`POST /local/dsh-agent-tree/dock/state`，内存里只留一份最新帧）；壳带握手 token
+  （`~/.dsh/agent-tree-dock-<端口>.json`，0600，DSH 重启自动轮换）轮询拉走注入浮窗页面——**浮窗页面全程零网络**。
+  浮窗里点行 → `POST /local/dsh-agent-tree/dock/action` 排队 → 随下一次发布响应带回浏览器执行 `openSession`
+  并把 DSH 带到前台；点卡片以外穿透到桌面；拖头部/胶囊挪窗口；右键 打开 DSH / 复位位置 / 退出。
+  `npm run dock:build` 就地编译（swiftc，无第三方依赖），`npm run dock` 编译并拉起。
+  快照经过裁剪（`dockPayload`），不带会话正文；详见 `docs/desktop.md`（英文 `docs/desktop.en.md`）。
+- **按需求去掉外部 agent 的子进程归组行**：`computer use ×N` / `MCP ×N` / `code mode` / `helper` 这些行不再显示，
+  客户端删除了 `groupProcessChildren` 与整段子进程渲染；外部 agent 行的折叠改由 codex 子对话（threads）驱动，
+  tooltip 里的「N 个子进程」一并去掉。宿主半部 payload 仍带 `children` 字段（回滚只需恢复客户端渲染）。
+- **修复：codex 不在 active 了还挂在面板上**。两个叠加原因：① ChatGPT / CodexCLI.app 的常驻后端
+  `codex app-server` 的可执行文件 basename 恰好是 `codex`，被当成 CLI 根进程——只要 ChatGPT.app 开着它就永远
+  活着，行就永远挂着（本机实测有一条跑了 6 天的这种进程）；② 客户端进程行的圆点硬编码 `active: true`，rollout
+  早就停了也照样亮。现在：`isCodexBackend` 识别常驻后端（token 判定，旗标夹中间也抓得到），只在最近 10 分钟
+  （`BACKEND_VISIBLE_MS`）有 rollout 写入时才挂行；`codexRowActivity` 给 codex 行算真实活动信号
+  （认领 rollout 与子线程的最近写入，<120s 亮 / 否则灰），圆点跟随信号，hover 提示「最后活动多久前」。
+- **修复：Claude 桌面版在 chat 里但没有 session**。`detectAgent` 只精确认小写 `claude`/`codex` basename，
+  Claude 桌面版主进程 `/Applications/Claude.app/Contents/MacOS/Claude`（大写 C）与 `Claude Helper` 全部不命中，
+  于是完全不显示。现在 `isClaudeDesktop` 识别主进程（路径含 `Claude.app/Contents/MacOS/`，Helper 与 Codex
+  桌面辅助进程不误伤），按 `claude`（desktop）挂顶层节点，行名 `Claude 桌面版`，Helper 作为子进程挂树下。
+- 宿主半部新增导出：`isCodexBackend` / `isClaudeDesktop` / `codexRowActivity` / `snapshot`（后两个给自检与排查用）。
+- 文档：README（中/英）「外部进程监控」两处、docs/manual（中/英）外部 agent 一节同步新行为。
+
 ## 0.1.5 — 2026-10-31
 
 - **向下兼容 DSH 0.2.0 线**：`engines.dsh` 与 `peerDependencies["@deepseek-ai/dsh"]` 从 `>=0.2.1-rc.2 <0.3.0`

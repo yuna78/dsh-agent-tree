@@ -10,6 +10,7 @@
  * 白名单（只公开这些）：
  *   包本体：package.json / index.js / client.js / cordis.patch.yml
  *   文档：  README.md / README.en.md / CHANGELOG.md / LICENSE / docs/**
+ *   桌面：  desktop/**（编译产物 desktop/build/ 排除）
  *   开发：  test/**、verify/**、scripts/build-public-bundle.mjs、.github/**
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -21,8 +22,8 @@ const outArg = process.argv.indexOf('--out');
 const OUT = resolve(outArg > 0 ? process.argv[outArg + 1] : join(ROOT, 'dist', 'public'));
 
 const FILES = ['package.json', 'index.js', 'client.js', 'cordis.patch.yml', '.gitignore', 'README.md', 'README.en.md', 'CHANGELOG.md', 'LICENSE', 'screenshots.json'];
-const DIRS = ['docs', 'test', 'verify', 'scripts', 'market'];
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.cache', '__pycache__', 'coverage']);
+const DIRS = ['docs', 'test', 'verify', 'scripts', 'market', 'desktop'];
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.cache', '__pycache__', 'coverage', 'build']);
 const SKIP_FILES = /(^|\/)(\.DS_Store|.*\.log|.*\.tmp|.*\.tgz|.*\.bak.*)$/;
 /** 本机专属、绝不公开的文件。 */
 const SKIP_PATHS = new Set(['scripts/build-public-bundle.local.mjs']);
@@ -68,7 +69,7 @@ function scan(violations) {
   for (const rel of walk(OUT)) {
     const full = join(OUT, rel);
     const ext = extname(rel).toLowerCase();
-    if (!['.md', '.js', '.mjs', '.json', '.yml', '.yaml', '.txt', ''].includes(ext)) continue;
+    if (!['.md', '.js', '.mjs', '.json', '.yml', '.yaml', '.txt', '.swift', '.html', '.css', ''].includes(ext)) continue;
     const text = readFileSync(full, 'utf8');
     for (const [pattern, label] of FORBIDDEN) {
       if (pattern.test(text)) violations.push(`${rel} 命中${label}：${pattern}`);
